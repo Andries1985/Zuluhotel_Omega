@@ -205,17 +205,17 @@ namespace Server.SkillHandlers
                     }
                     else if (m_Count == 1)
                     {
-                        m_Tamer.PublicOverheadMessage(MessageType.Regular, ZhConfig.Messaging.FailureHue, true,
+                        m_Tamer.PublicOverheadMessage(MessageType.Regular, ZhConfig.Messaging.SuccessHue, true,
                             $"What a nice {m_Creature.Name}");
                     }
                     else if (m_Count == 2)
                     {
-                        m_Tamer.PublicOverheadMessage(MessageType.Regular, ZhConfig.Messaging.FailureHue, true,
+                        m_Tamer.PublicOverheadMessage(MessageType.Regular, ZhConfig.Messaging.SuccessHue, true,
                             $"I've always wanted a {m_Creature.Name} like you.");
                     }
                     else if (m_Count == 3)
                     {
-                        m_Tamer.PublicOverheadMessage(MessageType.Regular, ZhConfig.Messaging.FailureHue, true,
+                        m_Tamer.PublicOverheadMessage(MessageType.Regular, ZhConfig.Messaging.SuccessHue, true,
                             $"{m_Creature.Name}, will you be my friend?");
                     }
                     else
