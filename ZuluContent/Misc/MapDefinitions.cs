@@ -35,7 +35,7 @@ namespace Server.Misc
              *  - <rules> : Rules and restrictions associated with the map. See documentation for details
             */
 
-            MultiComponentList.PostHSFormat = false; // OSI Client Patch 7.0.9.0
+            MultiComponentList.PostHSFormat = true; // OSI Client Patch 7.0.9.0
         }
 
         public static void RegisterMap(int mapIndex, int mapID, int fileIndex, int width, int height, int season,
