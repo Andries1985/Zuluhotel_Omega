@@ -1,11 +1,9 @@
 {
   "dataDirectories": [
-    "/app/client/",
-    "C:\\Program Files (x86)\\Electronic Arts\\Ultima Online Classic",
-    "D:\\Program Files (x86)\\Electronic Arts\\Ultima Online Classic"
+    "E:\\Ultima Online Classic"
   ],
   "listeners": [
-    "0.0.0.0:2593"
+    "0.0.0.0:2598"
   ],
   "settings": {
     "currentExpansion": "T2A",
