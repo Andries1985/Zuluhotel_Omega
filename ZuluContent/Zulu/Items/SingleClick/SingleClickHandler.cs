@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using Scripts.Zulu.Packets;
 using Server;
 using Server.Engines.Craft;
 using Server.Items;
@@ -13,17 +12,16 @@ namespace ZuluContent.Zulu.Items.SingleClick
 {
     public static partial class SingleClickHandler
     {
-        public static readonly TextInfo TextInfo = new CultureInfo("en-US", false).TextInfo;
-
-        public static bool StaffRevealedMagicItems = true;
-
-        public static bool AsciiClickMessage { get; set; } = true;
+        public static readonly TextInfo TextInfo = new CultureInfo("", false).TextInfo;
 
         private static string GetItemDesc(Item item)
         {
-            return ZhConfig.Messaging.Cliloc.TryGetValue(item.LabelNumber, out var desc)
-                ? TextInfo.ToTitleCase(desc)
-                : null;
+            return
+                item.DefaultName ?? (
+                    ZhConfig.Messaging.Cliloc.TryGetValue(item.LabelNumber, out var desc)
+                        ? TextInfo.ToTitleCase(desc)
+                        : null
+                );
         }
 
         private static (IEnumerable<string>, IEnumerable<string>) GetAffixes(IMagicItem item)
@@ -48,11 +46,16 @@ namespace ZuluContent.Zulu.Items.SingleClick
             var (prefixes, suffixes) = GetAffixes(item);
 
             var prefix = prefixes.Any() ? $"{string.Join(' ', prefixes)} " : string.Empty;
-            var suffix = suffixes.Any() ? $" of {string.Join(' ', suffixes)}" : string.Empty;
+            var suffix = suffixes.Any() ? $" of {string.Join(" of ", suffixes)}" : string.Empty;
 
-            var text = item is ICraftable {PlayerConstructed: true} craftable
-                ? GetCraftableItemName(craftable)
-                : $"{prefix}{GetItemDesc(item as Item)}{suffix}";
+            var text = item switch
+            {
+                IGMItem gmItem => gmItem.Name,
+                Item namedItem when namedItem.Name != namedItem.DefaultName && !string.IsNullOrEmpty(namedItem.Name) =>
+                    namedItem.Name,
+                ICraftable { PlayerConstructed: true } craftableItem => GetCraftableItemName(craftableItem),
+                _ => $"{prefix}{GetItemDesc(item as Item)}{suffix}"
+            };
 
             return text;
         }
@@ -68,9 +71,7 @@ namespace ZuluContent.Zulu.Items.SingleClick
             if (!Validate(m, item))
                 return;
 
-            var text = GetMagicItemName(item);
-
-            SendResponse(m, item, text);
+            SendResponse(m, item, GetMagicItemName(item));
         }
 
         private static void CraftableHandleSingleClick<T>(T item, Mobile m) where T : Item, ICraftable
@@ -85,7 +86,7 @@ namespace ZuluContent.Zulu.Items.SingleClick
 
         private static string GetCraftedFortified(ICraftable craftable)
         {
-            return craftable is BaseHat {Fortified: ItemFortificationType.Fortified} ? "Fortified " : "";
+            return craftable is BaseHat { Fortified: ItemFortificationType.Fortified } ? "Fortified " : "";
         }
 
         private static string GetCraftedExceptional(ICraftable craftable)
@@ -113,10 +114,10 @@ namespace ZuluContent.Zulu.Items.SingleClick
             if (!ZhConfig.Messaging.Cliloc.TryGetValue(item.LabelNumber, out var desc))
                 return false;
 
-            if (item is IMagicItem magicItem && (StaffRevealedMagicItems && m.AccessLevel == AccessLevel.Player) &&
-                !magicItem.Identified)
+            if (item is IMagicItem { Identified: false } magicItem)
             {
-                SendResponse(m, item, $"a magic {desc}");
+                var itemName = magicItem is IGMItem ? desc : $"a magic {desc}";
+                SendResponse(m, item, itemName);
                 return false;
             }
 

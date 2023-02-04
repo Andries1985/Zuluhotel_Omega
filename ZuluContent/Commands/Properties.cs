@@ -3,6 +3,7 @@ using System.Reflection;
 using Server.Commands;
 using Server.Commands.Generic;
 using Server.Gumps;
+using Server.Misc;
 using Server.Targeting;
 using CPA = Server.CommandPropertyAttribute;
 
@@ -55,7 +56,7 @@ namespace Server.Commands
         {
             if (e.Length == 1)
             {
-                IEntity ent = World.FindEntity(e.GetUInt32(0));
+                IEntity ent = World.FindEntity((Serial) e.GetUInt32(0));
 
                 if (ent == null)
                     e.Mobile.SendMessage("No object with that serial was found.");

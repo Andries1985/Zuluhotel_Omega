@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using Scripts.Zulu.Packets;
+using Scripts.Zulu.Utilities;
 using Server.Misc;
 using Server.Network;
 using Server.Mobiles;
@@ -154,21 +156,17 @@ namespace Server.Gumps
 						killer.Kills++;
 						killer.ShortTermMurders++;
 
-						if (killer is PlayerMobile)
+						if (killer is PlayerMobile pk)
 						{
-							PlayerMobile pk = (PlayerMobile)killer;
-							pk.ResetKillTime();
-							pk.SendLocalizedMessage(1049067);//You have been reported for murder!
+                            OutgoingZuluPackets.SendZuluPlayerStatus(pk.NetState, pk);
+                            pk.ResetKillTime();
+							pk.SendFailureMessage(1049067);//You have been reported for murder!
 
 							if (pk.Kills == 5)
 							{
-								pk.SendLocalizedMessage(502134);//You are now known as a murderer!
+								pk.SendFailureMessage(502134);//You are now known as a murderer!
 							}
-							else if (SkillHandlers.Stealing.SuspendOnMurder && pk.Kills == 1 && pk.NpcGuild == NpcGuild.ThievesGuild)
-							{
-								pk.SendLocalizedMessage(501562); // You have been suspended by the Thieves Guild.
-							}
-						}
+                        }
 					}
 					break;
 				}

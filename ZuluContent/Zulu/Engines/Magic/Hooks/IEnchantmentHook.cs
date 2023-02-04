@@ -12,7 +12,7 @@ namespace ZuluContent.Zulu.Engines.Magic.Hooks
     {
         public void OnIdentified(IEntity entity);
 
-        public void OnAdded(IEntity entity);
+        public void OnAdded(IEntity entity, IEntity parent);
 
         public void OnRemoved(IEntity entity, IEntity parent);
 
@@ -32,6 +32,8 @@ namespace ZuluContent.Zulu.Engines.Magic.Hooks
         public void OnCheckPoisonImmunity(Mobile attacker, Mobile defender, Poison poison, ref bool immune);
 
         public void OnHeal(Mobile healer, Mobile patient, object source, ref double healAmount);
+        
+        public void OnDeath(Mobile victim, ref bool resurrect);
 
         public void OnAnimalTaming(Mobile tamer, BaseCreature creature, ref int chance);
 
@@ -69,11 +71,11 @@ namespace ZuluContent.Zulu.Engines.Magic.Hooks
 
         public void OnMeleeHit(Mobile attacker, Mobile defender, BaseWeapon weapon, ref int damage);
 
-        public void OnAbsorbMeleeDamage(Mobile attacker, Mobile defender, BaseWeapon weapon, ref int damage);
+        public void OnAbsorbMeleeDamage(Mobile attacker, Mobile defender, BaseWeapon weapon, ref double damage);
 
-        public void OnShieldHit(Mobile attacker, Mobile defender, BaseWeapon weapon, BaseShield shield, ref int damage);
+        public void OnShieldHit(Mobile attacker, Mobile defender, BaseWeapon weapon, BaseShield shield, ref double damage);
 
-        public void OnArmorHit(Mobile attacker, Mobile defender, BaseWeapon weapon, BaseArmor armor, ref int damage);
+        public void OnArmorHit(Mobile attacker, Mobile defender, BaseWeapon weapon, BaseArmor armor, ref double damage);
 
         public void OnCraftItemCreated(Mobile from, CraftSystem craftSystem, CraftItem craftItem, BaseTool tool,
             Item item);

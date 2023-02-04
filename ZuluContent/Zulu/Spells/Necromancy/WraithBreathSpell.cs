@@ -9,7 +9,7 @@ namespace Scripts.Zulu.Spells.Necromancy
 {
     public class WraithBreathSpell : NecromancerSpell, ITargetableAsyncSpell<IPoint3D>
     {
-        public WraithBreathSpell(Mobile caster, Item spellItem) : base(caster, spellItem) { }
+        public WraithBreathSpell(Mobile caster, Item spellItem = null) : base(caster, spellItem) { }
 
         public async Task OnTargetAsync(ITargetResponse<IPoint3D> response)
         {
@@ -38,7 +38,7 @@ namespace Scripts.Zulu.Spells.Necromancy
                     continue;
                 }
                 
-                mobile.Paralyze(duration);
+                mobile.Freeze(duration);
                 Caster.DoHarmful(mobile, true);
                 mobile.FixedParticles(0x374B, 7, 16, 5013, EffectLayer.Waist);
                 mobile.PlaySound(0x1F9);

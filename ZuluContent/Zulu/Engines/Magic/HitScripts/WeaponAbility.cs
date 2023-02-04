@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Server.Network;
+using Server.Spells.First;
 
 namespace Server.Engines.Magic.HitScripts
 {
@@ -8,9 +10,6 @@ namespace Server.Engines.Magic.HitScripts
 
         public virtual bool Validate(Mobile from)
         {
-            // NetState state = from.NetState;
-
-            // return state != null;
             return true;
         }
     }

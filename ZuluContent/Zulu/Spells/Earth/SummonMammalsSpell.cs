@@ -1,11 +1,6 @@
-using System;
-using System.Collections;
 using System.Threading.Tasks;
 using Scripts.Zulu.Engines.Classes;
 using Server;
-using Server.Network;
-using Server.Items;
-using Server.Targeting;
 using Server.Mobiles;
 using Server.Spells;
 using Server.Utilities;
@@ -14,7 +9,7 @@ namespace Scripts.Zulu.Spells.Earth
 {
     public class SummonMammalsSpell : EarthSpell, IAsyncSpell
     {
-        public SummonMammalsSpell(Mobile caster, Item spellItem) : base(caster, spellItem) { }
+        public SummonMammalsSpell(Mobile caster, Item spellItem = null) : base(caster, spellItem) { }
         
         public async Task CastAsync()
         {

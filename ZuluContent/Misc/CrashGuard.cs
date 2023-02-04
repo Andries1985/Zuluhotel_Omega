@@ -1,146 +1,117 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Net.Mail;
 using Server.Accounting;
+using Server.Logging;
 using Server.Network;
 
 namespace Server.Misc
 {
-    public class CrashGuard
+    public static class CrashGuard
     {
-        private static bool Enabled = true;
-        private static bool SaveBackup = true;
-        private static bool RestartServer = true;
-        private static bool GenerateReport = true;
+        private static readonly ILogger logger = LogFactory.GetLogger(typeof(CrashGuard));
+
+        private static bool Enabled;
+        private static bool SaveBackup;
+        private static bool RestartServer; // Disable this if using a daemon/service
+        private static bool GenerateReport;
+
+        public static void Configure()
+        {
+            Enabled = ServerConfiguration.GetOrUpdateSetting("crashGuard.enabled", true);
+            SaveBackup = ServerConfiguration.GetOrUpdateSetting("crashGuard.saveBackup", true);
+            RestartServer = ServerConfiguration.GetOrUpdateSetting("crashGuard.restartServer", true);
+            GenerateReport = ServerConfiguration.GetOrUpdateSetting("crashGuard.generateReport", true);
+        }
 
         public static void Initialize()
         {
-            if (Enabled) // If enabled, register our crash event handler
+            if (Enabled)
+            {
                 EventSink.ServerCrashed += CrashGuard_OnCrash;
+            }
         }
 
         public static void CrashGuard_OnCrash(ServerCrashedEventArgs e)
         {
             if (GenerateReport)
+            {
                 GenerateCrashReport(e);
+            }
 
             World.WaitForWriteCompletion();
 
             if (SaveBackup)
+            {
                 Backup();
+            }
 
-
-            /*if ( Core.Service )
-              e.Close = true;
-            else */
             if (RestartServer)
+            {
                 Restart(e);
+            }
+            else
+            {
+                e.Close = true;
+            }
         }
 
         private static void SendEmail(string filePath)
         {
-            Console.Write("Crash: Sending email...");
+            logger.Information("Sending crash email");
 
-            MailMessage message = new MailMessage(Email.FromAddress, Email.CrashAddresses);
-
-            message.Subject = "Automated RunUO Crash Report";
-
-            message.Body = "Automated RunUO Crash Report. See attachment for details.";
-
-            message.Attachments.Add(new Attachment(filePath));
-
-            if (Email.Send(message))
-                Console.WriteLine("done");
-            else
-                Console.WriteLine("failed");
-        }
-
-        private static string GetRoot()
-        {
-            try
-            {
-                return Path.GetDirectoryName(Environment.GetCommandLineArgs()[0]);
-            }
-            catch
-            {
-                return "";
-            }
-        }
-
-        private static string Combine(string path1, string path2)
-        {
-            if (path1.Length == 0)
-                return path2;
-
-            return Path.Combine(path1, path2);
+            Email.SendCrashEmail(filePath);
         }
 
         private static void Restart(ServerCrashedEventArgs e)
         {
-            string root = GetRoot();
-
-            Console.Write("Crash: Restarting...");
+            logger.Information("Restarting");
 
             try
             {
                 Process.Start(Core.Assembly.Location, Core.Arguments);
-                Console.WriteLine("done");
+                logger.Information("Restart done");
 
                 e.Close = true;
             }
             catch
             {
-                Console.WriteLine("failed");
+                logger.Error("Restart failed");
             }
-        }
-
-        private static void CreateDirectory(string path)
-        {
-            if (!Directory.Exists(path))
-                Directory.CreateDirectory(path);
-        }
-
-        private static void CreateDirectory(string path1, string path2)
-        {
-            CreateDirectory(Combine(path1, path2));
         }
 
         private static void CopyFile(string rootOrigin, string rootBackup, string path)
         {
-            string originPath = Combine(rootOrigin, path);
-            string backupPath = Combine(rootBackup, path);
+            var originPath = Path.Combine(rootOrigin, path);
+            if (!File.Exists(originPath))
+            {
+                return;
+            }
+
+            var backupPath = Path.Combine(rootBackup, path);
+            Directory.CreateDirectory(Path.GetDirectoryName(backupPath));
 
             try
             {
-                if (File.Exists(originPath))
-                    File.Copy(originPath, backupPath);
+                File.Copy(originPath, backupPath);
             }
             catch
             {
+                // ignored
             }
         }
 
         private static void Backup()
         {
-            Console.Write("Crash: Backing up...");
+            logger.Information("Backing up");
 
             try
             {
-                string timeStamp = GetTimeStamp();
+                var timeStamp = Utility.GetTimeStamp();
 
-                string root = GetRoot();
-                string rootBackup = Combine(root, $"Backups/Crashed/{timeStamp}/");
-                string rootOrigin = Combine(root, String.Format("Saves/"));
-
-                // Create new directories
-                CreateDirectory(rootBackup);
-                CreateDirectory(rootBackup, "Accounts/");
-                CreateDirectory(rootBackup, "Items/");
-                CreateDirectory(rootBackup, "Mobiles/");
-                CreateDirectory(rootBackup, "Guilds/");
-                CreateDirectory(rootBackup, "Regions/");
+                var root = Core.BaseDirectory;
+                var rootBackup = Path.Combine(root, $"Backups/Crashed/{timeStamp}/");
+                var rootOrigin = Path.Combine(root, "Saves/");
 
                 // Copy files
                 CopyFile(rootOrigin, rootBackup, "Accounts/Accounts.xml");
@@ -159,37 +130,37 @@ namespace Server.Misc
                 CopyFile(rootOrigin, rootBackup, "Regions/Regions.bin");
                 CopyFile(rootOrigin, rootBackup, "Regions/Regions.idx");
 
-                Console.WriteLine("done");
+                logger.Information("Backup done");
             }
             catch
             {
-                Console.WriteLine("failed");
+                logger.Error("Backup failed");
             }
         }
 
         private static void GenerateCrashReport(ServerCrashedEventArgs e)
         {
-            Console.Write("Crash: Generating report...");
+            logger.Information("Generating crash report");
 
             try
             {
-                string timeStamp = GetTimeStamp();
-                string fileName = $"Crash {timeStamp}.log";
+                var timeStamp = Utility.GetTimeStamp();
+                var fileName = $"Crash {timeStamp}.log";
 
-                string root = GetRoot();
-                string filePath = Combine(root, fileName);
+                var root = Core.BaseDirectory;
+                var filePath = Path.Combine(root, fileName);
 
-                using (StreamWriter op = new StreamWriter(filePath))
+                using (var op = new StreamWriter(filePath))
                 {
-                    Version ver = Core.Assembly.GetName().Version;
+                    var ver = Core.Version;
 
                     op.WriteLine("Server Crash Report");
                     op.WriteLine("===================");
                     op.WriteLine();
-                    op.WriteLine("RunUO Version {0}.{1}, Build {2}.{3}", ver.Major, ver.Minor, ver.Build, ver.Revision);
+                    op.WriteLine($"ModernUO Version {ver.Major}.{ver.Minor}, Build {ver.Build}.{ver.Revision}");
                     op.WriteLine("Operating System: {0}", Environment.OSVersion);
                     op.WriteLine(".NET Framework: {0}", Environment.Version);
-                    op.WriteLine("Time: {0}", DateTime.Now);
+                    op.WriteLine("Time: {0}", timeStamp);
 
                     try
                     {
@@ -197,6 +168,7 @@ namespace Server.Misc
                     }
                     catch
                     {
+                        // ignored
                     }
 
                     try
@@ -205,6 +177,7 @@ namespace Server.Misc
                     }
                     catch
                     {
+                        // ignored
                     }
 
                     op.WriteLine("Exception:");
@@ -215,20 +188,25 @@ namespace Server.Misc
 
                     try
                     {
+                        var states = TcpServer.Instances;
 
-                        op.WriteLine("- Count: {0}", TcpServer.Instances.Count);
+                        op.WriteLine("- Count: {0}", states.Count);
 
-                        foreach (var state in TcpServer.Instances)
+                        foreach (var ns in TcpServer.Instances)
                         {
-                            op.Write("+ {0}:", state);
+                            op.Write("+ {0}:", ns);
 
-                            if (state.Account is Account a)
+                            if (ns.Account is Account a)
+                            {
                                 op.Write(" (account = {0})", a.Username);
+                            }
 
-                            Mobile m = state.Mobile;
+                            var m = ns.Mobile;
 
                             if (m != null)
+                            {
                                 op.Write(" (mobile = 0x{0:X} '{1}')", m.Serial.Value, m.Name);
+                            }
 
                             op.WriteLine();
                         }
@@ -239,22 +217,14 @@ namespace Server.Misc
                     }
                 }
 
-                Console.WriteLine("done");
+                logger.Information("Crash report generated");
 
-                if (Email.FromAddress != null && Email.CrashAddresses != null)
-                    SendEmail(filePath);
+                SendEmail(filePath);
             }
             catch
             {
-                Console.WriteLine("failed");
+                logger.Error("Crash report generation failed");
             }
-        }
-
-        private static string GetTimeStamp()
-        {
-            DateTime now = DateTime.Now;
-
-            return $"{now.Day}-{now.Month}-{now.Year}-{now.Hour}-{now.Minute}-{now.Second}";
         }
     }
 }

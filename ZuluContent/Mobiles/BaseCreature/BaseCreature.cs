@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using Scripts.Zulu.Engines.Classes;
 using Scripts.Zulu.Utilities;
+using Server.ContextMenus;
 using Server.Engines.Magic;
 using Server.Regions;
 using Server.Network;
@@ -13,9 +15,11 @@ using Server.Items;
 using Server.Engines.PartySystem;
 using Server.Engines.Spawners;
 using Server.Guilds;
+using Server.Gumps;
 using Server.SkillHandlers;
 using Server.Scripts.Engines.Loot;
 using Server.Utilities;
+using ZuluContent.Configuration.Types.Creatures;
 using ZuluContent.Zulu.Engines.Magic;
 using ZuluContent.Zulu.Engines.Magic.Enchantments.Buffs;
 using ZuluContent.Zulu.Items;
@@ -44,6 +48,7 @@ namespace Server.Mobiles
         private bool m_bControlled; // Is controlled
         private Mobile m_ControlMaster; // My master
         private OrderType m_ControlOrder; // My order
+        private int m_ControlSlots;
 
         private int m_Loyalty;
 
@@ -67,8 +72,30 @@ namespace Server.Mobiles
         [CommandProperty(AccessLevel.GameMaster)]
         public bool SeeksHome { get; set; }
 
+        private string m_RandomName;
+
+        public override string Name
+        {
+            get => base.Name;
+            set
+            {
+                base.Name = NameList.HasPlaceholder(value)
+                    ? NameList.SubstitutePlaceholderName(value, m_RandomName ??= NameList.RandomName(value))
+                    : value;
+            }
+        }
+
         [CommandProperty(AccessLevel.GameMaster)]
-        public string CorpseNameOverride { get; set; }
+        public string CorpseNameOverride
+        {
+            get => m_CorpseNameOverride;
+            set
+            {
+                m_CorpseNameOverride = NameList.HasPlaceholder(value)
+                    ? NameList.SubstitutePlaceholderName(value, m_RandomName ??= NameList.RandomName(value))
+                    : value;
+            }
+        }
 
         [CommandProperty(AccessLevel.GameMaster, AccessLevel.Administrator)]
         public bool IsStabled
@@ -125,7 +152,6 @@ namespace Server.Mobiles
             public DeleteTimer(Mobile creature, TimeSpan delay) : base(delay)
             {
                 m = creature;
-                Priority = TimerPriority.OneMinute;
             }
 
             protected override void OnTick()
@@ -204,7 +230,7 @@ namespace Server.Mobiles
 
         #region Breath ability, like dragon fire breath
 
-        private DateTime m_NextBreathTime;
+        private long m_NextBreathTime;
 
         // Base damage given is: CurrentHitPoints * BreathDamageScalar
         public virtual double BreathDamageScalar
@@ -306,13 +332,13 @@ namespace Server.Mobiles
 
             Direction = GetDirectionTo(target);
 
-            Timer.DelayCall(TimeSpan.FromSeconds(BreathEffectDelay), BreathEffect_Callback, target);
+            Timer.StartTimer(TimeSpan.FromSeconds(BreathEffectDelay), () => BreathEffect_Callback(target));
         }
 
         public virtual void BreathStallMovement()
         {
             if (AIObject != null)
-                AIObject.NextMove = Core.TickCount + (int) TimeSpan.FromSeconds(BreathStallTime).TotalMilliseconds;
+                AIObject.NextMove = Core.TickCount + (int)TimeSpan.FromSeconds(BreathStallTime).TotalMilliseconds;
         }
 
         public virtual void BreathPlayAngerSound()
@@ -333,7 +359,7 @@ namespace Server.Mobiles
             BreathPlayEffectSound();
             BreathPlayEffect(target);
 
-            Timer.DelayCall(TimeSpan.FromSeconds(BreathDamageDelay), BreathDamage_Callback, target);
+            Timer.StartTimer(TimeSpan.FromSeconds(BreathDamageDelay), () => BreathDamage_Callback(target));
         }
 
         public virtual void BreathPlayEffectSound()
@@ -364,7 +390,7 @@ namespace Server.Mobiles
 
         public virtual int BreathComputeDamage()
         {
-            int damage = (int) (Hits * BreathDamageScalar);
+            int damage = (int)(Hits * BreathDamageScalar);
 
             if (damage > 200)
                 damage = 200;
@@ -374,6 +400,19 @@ namespace Server.Mobiles
 
         #endregion
 
+        #region Spitting web ability
+
+        public virtual double SpitWebMinDelay
+        {
+            get { return 5.0; }
+        }
+
+        public virtual double SpitWebMaxDelay
+        {
+            get { return 15.0; }
+        }
+
+        #endregion
 
         #region Flee!!!
 
@@ -418,6 +457,12 @@ namespace Server.Mobiles
         public BaseAI AIObject { get; private set; }
 
         public const int MaxOwners = 5;
+        
+        public void StallMovement(TimeSpan stallTime)
+        {
+            if (AIObject != null)
+                AIObject.NextMove = Core.TickCount + (int)stallTime.TotalMilliseconds;
+        }
 
         #region Friends
 
@@ -448,40 +493,33 @@ namespace Server.Mobiles
 
         public virtual bool IsFriend(Mobile m)
         {
-            OppositionGroup g = OppositionGroup;
+            var g = OppositionGroup;
 
-            if (g != null && g.IsEnemy(this, m))
+            if (!(m is BaseCreature creature))
                 return false;
 
-            if (!(m is BaseCreature))
-                return false;
-
-            BaseCreature c = (BaseCreature) m;
-
-            return m_iTeam == c.m_iTeam && (m_bSummoned || m_bControlled) == (c.m_bSummoned || c.m_bControlled);
+            return g?.IsFriendly(this, creature) ?? true;
         }
 
         #endregion
 
         public virtual bool IsEnemy(Mobile m)
         {
-            OppositionGroup g = OppositionGroup;
-
-            if (g != null && g.IsEnemy(this, m))
-                return true;
+            var g = OppositionGroup;
 
             if (m is BaseGuard)
                 return false;
 
-            if (!(m is BaseCreature))
+            if (!(m is BaseCreature creature))
                 return true;
 
-            BaseCreature c = (BaseCreature) m;
-
-            if (FightMode == FightMode.Evil && m.Karma < 0 || c.FightMode == FightMode.Evil && Karma < 0)
+            if (g != null && g.IsEnemy(this, creature))
                 return true;
 
-            return m_iTeam != c.m_iTeam || (m_bSummoned || m_bControlled) != (c.m_bSummoned || c.m_bControlled);
+            if (FightMode == FightMode.Evil && m.Karma < 0 || creature.FightMode == FightMode.Evil && Karma < 0)
+                return true;
+
+            return m_iTeam != creature.m_iTeam || (m_bSummoned || m_bControlled) != (creature.m_bSummoned || creature.m_bControlled);
         }
 
         public virtual bool CheckControlChance(Mobile m)
@@ -509,13 +547,14 @@ namespace Server.Mobiles
                     if (nearbyMobile is BaseCreature creature &&
                         (creature.ControlMaster == owner || creature.SummonMaster == owner))
                     {
-                        if (creature.Summoned && creature.Serial != Serial &&
-                            (creature is AirElementalLord || creature is EarthElementalLord ||
-                             creature is FireElementalLord ||
-                             creature is WaterElementalLord))
-                            creature.AIObject.DoOrderRelease(true);
-                        else
+                        if (!(creature.Summoned &&
+                              creature.Serial != Serial &&
+                              creature is BaseElementalLord &&
+                              creature.AIObject.DoOrderRelease(true)
+                            ))
+                        {
                             petSlots += creature.GetPetSlots(owner);
+                        }
                     }
                 }
 
@@ -525,13 +564,13 @@ namespace Server.Mobiles
                 {
                     var magery = m.Skills[SkillName.Magery].Value;
                     m.FireHook(h => h.OnModifyWithMagicEfficiency(m, ref magery));
-                    maxSlots = (int) (magery / 20);
+                    maxSlots = (int)(magery / 20);
                     return !(petSlots > maxSlots && petSlots > minSlots);
                 }
 
-                var animalLore = (int) m.Skills[SkillName.AnimalLore].Value;
-                var animalTaming = (int) m.Skills[SkillName.AnimalTaming].Value;
-                maxSlots = (int) ((animalLore + animalTaming) / 15);
+                var animalLore = (int)m.Skills[SkillName.AnimalLore].Value;
+                var animalTaming = (int)m.Skills[SkillName.AnimalTaming].Value;
+                maxSlots = (animalLore + animalTaming) / 15;
                 return !(petSlots > maxSlots && petSlots > minSlots);
             }
 
@@ -565,7 +604,7 @@ namespace Server.Mobiles
         {
             var immune = base.CheckPoisonImmunity(from, poison);
             this.FireHook(h => h.OnCheckPoisonImmunity(from, this, poison, ref immune));
-            
+
             if (immune)
                 return true;
 
@@ -589,7 +628,7 @@ namespace Server.Mobiles
 
         [CommandProperty(AccessLevel.GameMaster)]
         public virtual Mobile ConstantFocus { get; set; }
-        
+
         [CommandProperty(AccessLevel.GameMaster)]
         public virtual bool DisallowAllMoves { get; set; }
 
@@ -749,14 +788,9 @@ namespace Server.Mobiles
             if (BardPacified && (HitsMax - Hits) * 0.001 > Utility.RandomDouble())
                 Unpacify();
 
-            int disruptThreshold;
-
-            disruptThreshold = 0;
-
-            if (amount > disruptThreshold)
+            if (amount > 0)
             {
-                BandageContext c = BandageContext.GetContext(this);
-
+                var c = BandageContext.GetContext(this);
                 c?.Slip();
             }
 
@@ -830,7 +864,7 @@ namespace Server.Mobiles
 
                 if (hides != 0)
                 {
-                    var hideType = CraftResources.GetTypeFromResource((CraftResource) (101 + HideType));
+                    var hideType = CraftResources.GetTypeFromResource((CraftResource)(101 + HideType));
                     if (hideType != null)
                     {
                         from.PlaceInBackpack(hideType.CreateInstance<BaseHide>(hides));
@@ -844,9 +878,8 @@ namespace Server.Mobiles
                     from.CriminalAction(true);
             }
         }
-
-        public const int DefaultRangePerception = 16;
-        public const int OldRangePerception = 10;
+        
+        public const int DefaultRangePerception = 10;
 
         public BaseCreature(AIType ai,
             FightMode mode,
@@ -855,9 +888,6 @@ namespace Server.Mobiles
             double dActiveSpeed,
             double dPassiveSpeed)
         {
-            if (iRangePerception == OldRangePerception)
-                iRangePerception = DefaultRangePerception;
-
             m_Loyalty = MaxLoyalty; // Wonderfully Happy
 
             m_CurrentAI = ai;
@@ -869,8 +899,6 @@ namespace Server.Mobiles
             FightMode = mode;
 
             m_iTeam = 0;
-
-            SpeedInfo.GetSpeeds(this, ref dActiveSpeed, ref dPassiveSpeed);
 
             ActiveSpeed = dActiveSpeed;
             PassiveSpeed = dPassiveSpeed;
@@ -890,7 +918,7 @@ namespace Server.Mobiles
 
             Owners = new List<Mobile>();
 
-            NextReacquireTime = Core.TickCount + (int) ReacquireDelay.TotalMilliseconds;
+            NextReacquireTime = Core.TickCount + (int)ReacquireDelay.TotalMilliseconds;
 
             ChangeAIType(AI);
 
@@ -902,7 +930,6 @@ namespace Server.Mobiles
         protected BaseCreature(CreatureProperties p) : this(p.AiType, p.FightMode, p.PerceptionRange, p.FightRange,
             p.ActiveSpeed, p.PassiveSpeed)
         {
-            p.ApplyTo(this);
         }
 
         public BaseCreature(Serial serial) : base(serial)
@@ -917,62 +944,62 @@ namespace Server.Mobiles
         {
             base.Serialize(writer);
 
-            writer.Write((int) 18); // version
+            writer.Write((int)18); // version
 
-            writer.Write((int) m_CurrentAI);
-            writer.Write((int) m_DefaultAI);
+            writer.Write((int)m_CurrentAI);
+            writer.Write((int)m_DefaultAI);
 
-            writer.Write((int) RangePerception);
-            writer.Write((int) RangeFight);
+            writer.Write((int)RangePerception);
+            writer.Write((int)RangeFight);
 
-            writer.Write((int) m_iTeam);
+            writer.Write((int)m_iTeam);
 
-            writer.Write((double) ActiveSpeed);
-            writer.Write((double) PassiveSpeed);
-            writer.Write((double) m_dCurrentSpeed);
+            writer.Write((double)ActiveSpeed);
+            writer.Write((double)PassiveSpeed);
+            writer.Write((double)m_dCurrentSpeed);
 
-            writer.Write((int) m_pHome.X);
-            writer.Write((int) m_pHome.Y);
-            writer.Write((int) m_pHome.Z);
+            writer.Write((int)m_pHome.X);
+            writer.Write((int)m_pHome.Y);
+            writer.Write((int)m_pHome.Z);
 
             // Version 1
-            writer.Write((int) RangeHome);
+            writer.Write((int)RangeHome);
 
             int i = 0;
 
-            writer.Write((int) m_arSpellAttack.Count);
+            writer.Write((int)m_arSpellAttack.Count);
             for (i = 0; i < m_arSpellAttack.Count; i++)
             {
                 writer.Write(m_arSpellAttack[i].ToString());
             }
 
-            writer.Write((int) m_arSpellDefense.Count);
+            writer.Write((int)m_arSpellDefense.Count);
             for (i = 0; i < m_arSpellDefense.Count; i++)
             {
                 writer.Write(m_arSpellDefense[i].ToString());
             }
 
             // Version 2
-            writer.Write((int) FightMode);
+            writer.Write((int)FightMode);
 
-            writer.Write((bool) m_bControlled);
-            writer.Write((Mobile) m_ControlMaster);
-            writer.Write((Mobile) ControlTarget);
-            writer.Write((Point3D) ControlDest);
-            writer.Write((int) m_ControlOrder);
-            writer.Write((double) MinTameSkill);
+            writer.Write((bool)m_bControlled);
+            writer.Write((Mobile)m_ControlMaster);
+            writer.Write((Mobile)ControlTarget);
+            writer.Write((Point3D)ControlDest);
+            writer.Write((int)m_ControlOrder);
+            writer.Write((double)MinTameSkill);
             // Removed in version 9
             //writer.Write( (double) m_dMaxTameSkill );
-            writer.Write((bool) Tamable);
-            writer.Write((bool) m_bSummoned);
+            writer.Write((bool)Tamable);
+            writer.Write((bool)m_bSummoned);
 
             if (m_bSummoned)
                 writer.WriteDeltaTime(SummonEnd);
 
-            writer.Write((int) ControlSlots);
+            writer.Write((int)m_ControlSlots);
 
             // Version 3
-            writer.Write((int) m_Loyalty);
+            writer.Write((int)m_Loyalty);
 
             // Version 4
             writer.Write(CurrentWayPoint);
@@ -981,27 +1008,27 @@ namespace Server.Mobiles
             writer.Write(m_SummonMaster);
 
             // Version 6
-            writer.Write((int) HitsMaxSeed);
-            writer.Write((int) StamMaxSeed);
-            writer.Write((int) ManaMaxSeed);
-            writer.Write((int) m_DamageMin);
-            writer.Write((int) m_DamageMax);
+            writer.Write((int)HitsMaxSeed);
+            writer.Write((int)StamMaxSeed);
+            writer.Write((int)ManaMaxSeed);
+            writer.Write((int)m_DamageMin);
+            writer.Write((int)m_DamageMax);
 
             // Version 8
             writer.Write(Owners);
 
             // Version 11
-            writer.Write((bool) m_HasGeneratedLoot);
+            writer.Write((bool)m_HasGeneratedLoot);
 
             // Version 13
-            writer.Write((bool) (Friends != null && Friends.Count > 0));
+            writer.Write((bool)(Friends != null && Friends.Count > 0));
 
             if (Friends != null && Friends.Count > 0)
                 writer.Write(Friends);
 
             // Version 14
-            writer.Write((bool) RemoveIfUntamed);
-            writer.Write((int) RemoveStep);
+            writer.Write((bool)RemoveIfUntamed);
+            writer.Write((int)RemoveStep);
 
             // Version 17
             if (IsStabled || Controlled && ControlMaster != null)
@@ -1027,12 +1054,10 @@ namespace Server.Mobiles
         {
             base.Deserialize(reader);
 
-            CreatureProperties.Get(GetType())?.ApplyTo(this);
-
             int version = reader.ReadInt();
 
-            m_CurrentAI = (AIType) reader.ReadInt();
-            m_DefaultAI = (AIType) reader.ReadInt();
+            m_CurrentAI = (AIType)reader.ReadInt();
+            m_DefaultAI = (AIType)reader.ReadInt();
 
             RangePerception = reader.ReadInt();
             RangeFight = reader.ReadInt();
@@ -1042,9 +1067,6 @@ namespace Server.Mobiles
             ActiveSpeed = reader.ReadDouble();
             PassiveSpeed = reader.ReadDouble();
             m_dCurrentSpeed = reader.ReadDouble();
-
-            if (RangePerception == OldRangePerception)
-                RangePerception = DefaultRangePerception;
 
             m_pHome.X = reader.ReadInt();
             m_pHome.Y = reader.ReadInt();
@@ -1087,13 +1109,13 @@ namespace Server.Mobiles
 
             if (version >= 2)
             {
-                FightMode = (FightMode) reader.ReadInt();
+                FightMode = (FightMode)reader.ReadInt();
 
                 m_bControlled = reader.ReadBool();
                 m_ControlMaster = reader.ReadEntity<Mobile>();
                 ControlTarget = reader.ReadEntity<Mobile>();
                 ControlDest = reader.ReadPoint3D();
-                m_ControlOrder = (OrderType) reader.ReadInt();
+                m_ControlOrder = (OrderType)reader.ReadInt();
 
                 MinTameSkill = reader.ReadDouble();
 
@@ -1109,7 +1131,7 @@ namespace Server.Mobiles
                     new UnsummonTimer(m_ControlMaster, this, SummonEnd - DateTime.Now).Start();
                 }
 
-                ControlSlots = reader.ReadInt();
+                m_ControlSlots = reader.ReadInt();
             }
             else
             {
@@ -1161,8 +1183,6 @@ namespace Server.Mobiles
 
             double activeSpeed = ActiveSpeed;
             double passiveSpeed = PassiveSpeed;
-
-            SpeedInfo.GetSpeeds(this, ref activeSpeed, ref passiveSpeed);
 
             bool isStandardActive = false;
             for (int i = 0; !isStandardActive && i < m_StandardActiveSpeeds.Length; ++i)
@@ -1220,8 +1240,8 @@ namespace Server.Mobiles
 
         public virtual bool CheckGold(Mobile from, Item dropped)
         {
-            if (dropped is Gold)
-                return OnGoldGiven(from, (Gold) dropped);
+            if (dropped is Gold gold)
+                return OnGoldGiven(from, gold);
 
             return false;
         }
@@ -1258,6 +1278,36 @@ namespace Server.Mobiles
                 dropped.Delete();
                 return true;
             }
+
+            return false;
+        }
+
+        public virtual bool CheckTrainingDeed(Mobile from, Item dropped)
+        {
+            if (dropped is SkillTrainingDeed deed)
+                return OnTrainingDeedGiven(from, deed);
+
+            return false;
+        }
+
+        public virtual bool OnTrainingDeedGiven(Mobile from, SkillTrainingDeed dropped)
+        {
+            if (from != dropped.Player)
+            {
+                Say("That is not yours to use! I have confiscated it.");
+                dropped.Delete();
+                return false;
+            }
+
+            if (CheckTeachingMatch(from))
+            {
+                var pointsToLearn = 0;
+                CheckTeachSkills(m_Teaching, from, 0, ref pointsToLearn, false);
+                from.SendGump(new TrainSkillsGump(from, this, dropped, m_Teaching, pointsToLearn));
+                return false;
+            }
+
+            Say("Unfortunately I can only accept that for training skills!");
 
             return false;
         }
@@ -1443,7 +1493,11 @@ namespace Server.Mobiles
         {
             if (CheckFeed(from, dropped))
                 return true;
-            else if (CheckGold(from, dropped))
+
+            if (CheckGold(from, dropped))
+                return true;
+
+            if (CheckTrainingDeed(from, dropped))
                 return true;
 
             return base.OnDragDrop(from, dropped);
@@ -1716,7 +1770,15 @@ namespace Server.Mobiles
         }
 
         [CommandProperty(AccessLevel.Administrator)]
-        public int ControlSlots { get; set; } = 1;
+        public int ControlSlots
+        {
+            get
+            {
+                var creatureScoreSlots = GetCreatureScore() / 30;
+                return Math.Max(m_ControlSlots, creatureScoreSlots);
+            }
+            set => m_ControlSlots = value;
+        }
 
         public virtual bool NoHouseRestrictions
         {
@@ -1763,16 +1825,24 @@ namespace Server.Mobiles
             get { return true; }
         }
 
+        public virtual int GetCreatureScore()
+        {
+            var highestStat = new List<int> { Str, Int, Dex }.Max() / 10;
+            highestStat = (int)(highestStat * ZuluClass.Bonus);
+            highestStat = Math.Min(highestStat, 150);
+
+            return highestStat;
+        }
+
         public virtual int GetPetSlots(PlayerMobile owner)
         {
             int slots;
 
             if (m_bSummoned)
             {
-                var ownerInt = (double) owner.Int;
+                var ownerInt = (double)owner.Int;
                 owner.FireHook(h => h.OnModifyWithMagicEfficiency(owner, ref ownerInt));
-                if (this is AirElementalLord || this is EarthElementalLord || this is FireElementalLord ||
-                    this is WaterElementalLord)
+                if (this is BaseElementalLord)
                     slots = 3;
                 else if (Int > ownerInt || HitsMax > ownerInt)
                     slots = 2;
@@ -1815,7 +1885,7 @@ namespace Server.Mobiles
 
         public virtual void OnGotMeleeAttack(Mobile attacker)
         {
-            if (AutoDispel && attacker is BaseCreature {IsDispellable: true} creature &&
+            if (AutoDispel && attacker is BaseCreature { IsDispellable: true } creature &&
                 AutoDispelChance > Utility.RandomDouble())
                 Dispel(creature);
         }
@@ -1846,7 +1916,7 @@ namespace Server.Mobiles
                     CheckSkill(SkillName.Poisoning, 0, Skills[SkillName.Poisoning].Cap);
             }
 
-            if (AutoDispel && defender is BaseCreature && ((BaseCreature) defender).IsDispellable &&
+            if (AutoDispel && defender is BaseCreature && ((BaseCreature)defender).IsDispellable &&
                 AutoDispelChance > Utility.RandomDouble())
                 Dispel(defender);
         }
@@ -1869,11 +1939,6 @@ namespace Server.Mobiles
             FocusMob = null;
 
             base.OnAfterDelete();
-        }
-
-        public override void OnAfterNameChange(string oldName, string newName)
-        {
-            NameList.SubstituteCreatureName(this);
         }
 
         public void DebugSay(string text)
@@ -1921,16 +1986,16 @@ namespace Server.Mobiles
         // Basic for now, needs work
         public virtual void Turn(int iTurnSteps)
         {
-            int v = (int) Direction;
+            int v = (int)Direction;
 
-            Direction = (Direction) ((((v & 0x7) + iTurnSteps) & 0x7) | (v & 0x80));
+            Direction = (Direction)((((v & 0x7) + iTurnSteps) & 0x7) | (v & 0x80));
         }
 
         public virtual void TurnInternal(int iTurnSteps)
         {
-            int v = (int) Direction;
+            int v = (int)Direction;
 
-            SetDirection((Direction) ((((v & 0x7) + iTurnSteps) & 0x7) | (v & 0x80)));
+            SetDirection((Direction)((((v & 0x7) + iTurnSteps) & 0x7) | (v & 0x80)));
         }
 
         public bool IsHurt()
@@ -1951,7 +2016,7 @@ namespace Server.Mobiles
             {
                 if (m is BaseCreature)
                 {
-                    if (((BaseCreature) m).Team == Team)
+                    if (((BaseCreature)m).Team == Team)
                     {
                         if (!m.Deleted)
                         {
@@ -2011,8 +2076,8 @@ namespace Server.Mobiles
             if (!CheckTeach(skill, m) || !m.CheckAlive())
                 return TeachResult.Failure;
 
-            Skill ourSkill = Skills[skill];
-            Skill theirSkill = m.Skills[skill];
+            var ourSkill = Skills[skill];
+            var theirSkill = m.Skills[skill];
 
             if (ourSkill == null || theirSkill == null)
                 return TeachResult.Failure;
@@ -2044,77 +2109,24 @@ namespace Server.Mobiles
             if (theirSkill.Lock != SkillLock.Up)
                 return TeachResult.SkillNotRaisable;
 
-            int freePoints = m.Skills.Cap - m.Skills.Total;
-            int freeablePoints = 0;
-
-            if (freePoints < 0)
-                freePoints = 0;
-
-            for (int i = 0; freePoints + freeablePoints < pointsToLearn && i < m.Skills.Length; ++i)
-            {
-                Skill sk = m.Skills[i];
-
-                if (sk == theirSkill || sk.Lock != SkillLock.Down)
-                    continue;
-
-                freeablePoints += sk.BaseFixedPoint;
-            }
-
-            if (freePoints + freeablePoints == 0)
-                return TeachResult.NotEnoughFreePoints;
-
-            if (freePoints + freeablePoints < pointsToLearn)
-            {
-                pointsToLearn = freePoints + freeablePoints;
-                baseToSet = theirSkill.BaseFixedPoint + pointsToLearn;
-            }
-
             if (doTeach)
-            {
-                int need = pointsToLearn - freePoints;
-
-                for (int i = 0; need > 0 && i < m.Skills.Length; ++i)
-                {
-                    Skill sk = m.Skills[i];
-
-                    if (sk == theirSkill || sk.Lock != SkillLock.Down)
-                        continue;
-
-                    if (sk.BaseFixedPoint < need)
-                    {
-                        need -= sk.BaseFixedPoint;
-                        sk.BaseFixedPoint = 0;
-                    }
-                    else
-                    {
-                        sk.BaseFixedPoint -= need;
-                        need = 0;
-                    }
-                }
-
-                /* Sanity check */
-                if (baseToSet > theirSkill.CapFixedPoint ||
-                    m.Skills.Total - theirSkill.BaseFixedPoint + baseToSet > m.Skills.Cap)
-                    return TeachResult.NotEnoughFreePoints;
-
                 theirSkill.BaseFixedPoint = baseToSet;
-            }
 
             return TeachResult.Success;
         }
 
         public virtual bool CheckTeachingMatch(Mobile m)
         {
-            if (m_Teaching == (SkillName) (-1))
+            if (m_Teaching == (SkillName)(-1))
                 return false;
 
             if (m is PlayerMobile)
-                return ((PlayerMobile) m).Learning == m_Teaching;
+                return ((PlayerMobile)m).Learning == m_Teaching;
 
             return true;
         }
 
-        private SkillName m_Teaching = (SkillName) (-1);
+        private SkillName m_Teaching = (SkillName)(-1);
 
         public virtual bool Teach(SkillName skill, Mobile m, int maxPointsToLearn, bool doTeach)
         {
@@ -2124,48 +2136,48 @@ namespace Server.Mobiles
             switch (res)
             {
                 case TeachResult.KnowsMoreThanMe:
-                {
-                    Say(501508); // I cannot teach thee, for thou knowest more than I!
-                    break;
-                }
+                    {
+                        Say(501508); // I cannot teach thee, for thou knowest more than I!
+                        break;
+                    }
                 case TeachResult.KnowsWhatIKnow:
-                {
-                    Say(501509); // I cannot teach thee, for thou knowest all I can teach!
-                    break;
-                }
+                    {
+                        Say(501509); // I cannot teach thee, for thou knowest all I can teach!
+                        break;
+                    }
                 case TeachResult.NotEnoughFreePoints:
                 case TeachResult.SkillNotRaisable:
-                {
-                    // Make sure this skill is marked to raise. If you are near the skill cap (700 points) you may need to lose some points in another skill first.
-                    m.SendLocalizedMessage(501510, "", 0x22);
-                    break;
-                }
+                    {
+                        // Make sure this skill is marked to raise. If you are near the skill cap (700 points) you may need to lose some points in another skill first.
+                        m.SendLocalizedMessage(501510, "", 0x22);
+                        break;
+                    }
                 case TeachResult.Success:
-                {
-                    if (doTeach)
                     {
-                        Say(501539); // Let me show thee something of how this is done.
-                        m.SendLocalizedMessage(501540); // Your skill level increases.
+                        if (doTeach)
+                        {
+                            Say(501539); // Let me show thee something of how this is done.
+                            m.SendSuccessMessage(501540); // Your skill level increases.
 
-                        m_Teaching = (SkillName) (-1);
+                            m_Teaching = (SkillName)(-1);
 
-                        if (m is PlayerMobile)
-                            ((PlayerMobile) m).Learning = (SkillName) (-1);
+                            if (m is PlayerMobile)
+                                ((PlayerMobile)m).Learning = (SkillName)(-1);
+                        }
+                        else
+                        {
+                            // I will teach thee all I know, if paid the amount in full.  The price is:
+                            Say(1019077, AffixType.Append, String.Format(" {0}", pointsToLearn), "");
+                            Say(1043108); // For less I shall teach thee less.
+
+                            m_Teaching = skill;
+
+                            if (m is PlayerMobile)
+                                ((PlayerMobile)m).Learning = skill;
+                        }
+
+                        return true;
                     }
-                    else
-                    {
-                        // I will teach thee all I know, if paid the amount in full.  The price is:
-                        Say(1019077, AffixType.Append, String.Format(" {0}", pointsToLearn), "");
-                        Say(1043108); // For less I shall teach thee less.
-
-                        m_Teaching = skill;
-
-                        if (m is PlayerMobile)
-                            ((PlayerMobile) m).Learning = skill;
-                    }
-
-                    return true;
-                }
             }
 
             return false;
@@ -2205,8 +2217,11 @@ namespace Server.Mobiles
 
         public override bool OnMoveOver(Mobile m)
         {
-            if (m is BaseCreature && !((BaseCreature) m).Controlled)
+            if (m is BaseCreature && !((BaseCreature)m).Controlled)
                 return !Alive || !m.Alive || Hidden && AccessLevel > AccessLevel.Player;
+            
+            if (GetMaster() == m)
+                return true;
 
             return base.OnMoveOver(m);
         }
@@ -2214,6 +2229,52 @@ namespace Server.Mobiles
         public virtual bool CanDrop
         {
             get { return false; }
+        }
+
+        public virtual void AddCustomContextEntries(Mobile from, List<ContextMenuEntry> list)
+        {
+        }
+
+        public override void GetContextMenuEntries(Mobile from, List<ContextMenuEntry> list)
+        {
+            base.GetContextMenuEntries(from, list);
+
+            if (Commandable)
+            {
+                AIObject?.GetContextMenuEntries(from, list);
+            }
+
+            if (Tamable && !Controlled && from.Alive)
+            {
+                list.Add(new TameEntry(from, this));
+                list.Add(new LoreEntry(from, this));
+            }
+
+            AddCustomContextEntries(from, list);
+
+            if (CanTeach && from.Alive)
+            {
+                var ourSkills = Skills;
+                var theirSkills = from.Skills;
+
+                for (var i = 0; i < ourSkills.Length && i < theirSkills.Length; ++i)
+                {
+                    var skill = ourSkills[i];
+                    var theirSkill = theirSkills[i];
+
+                    if (skill?.Base >= 60.0 && CheckTeach(skill.SkillName, from))
+                    {
+                        var toTeach = skill.BaseFixedPoint / 3;
+
+                        if (toTeach > 420)
+                        {
+                            toTeach = 420;
+                        }
+
+                        list.Add(new TeachEntry((SkillName)i, this, from, toTeach > theirSkill.BaseFixedPoint));
+                    }
+                }
+            }
         }
 
         public override bool HandlesOnSpeech(Mobile from)
@@ -2241,11 +2302,11 @@ namespace Server.Mobiles
             if (Controlled && target == m_ControlMaster || Summoned && target == m_SummonMaster)
                 return false;
 
-            if (target is BaseCreature && ((BaseCreature) target).InitialInnocent &&
-                !((BaseCreature) target).Controlled)
+            if (target is BaseCreature && ((BaseCreature)target).InitialInnocent &&
+                !((BaseCreature)target).Controlled)
                 return false;
 
-            if (target is PlayerMobile && ((PlayerMobile) target).PermaFlags.Count > 0)
+            if (target is PlayerMobile && ((PlayerMobile)target).PermaFlags.Count > 0)
                 return false;
 
             return base.IsHarmfulCriminal(target);
@@ -2414,9 +2475,9 @@ namespace Server.Mobiles
         {
             base.OnCombatantChange();
 
-            Warmode = Combatant != null && !Combatant.Deleted && Combatant.Alive;
+            Warmode = Combatant is { Deleted: false, Alive: true };
 
-            if (CanFly && Warmode && Flying)
+            if (CanFly && Warmode)
             {
                 Flying = false;
             }
@@ -2481,7 +2542,7 @@ namespace Server.Mobiles
                 !m.InRange(Location, 12) || !m.Alive)
                 return;
 
-            GuardedRegion guardedRegion = (GuardedRegion) Region.GetRegion(typeof(GuardedRegion));
+            GuardedRegion guardedRegion = (GuardedRegion)Region.GetRegion(typeof(GuardedRegion));
 
             if (guardedRegion != null)
             {
@@ -2498,7 +2559,7 @@ namespace Server.Mobiles
                 }
             }
         }
-        
+
         public override void OnHiddenChanged()
         {
             base.OnHiddenChanged();
@@ -2521,7 +2582,7 @@ namespace Server.Mobiles
             {
                 Type type = m_arSpellAttack[Utility.Random(m_arSpellAttack.Count)];
 
-                object[] args = {this, null};
+                object[] args = { this, null };
                 return Activator.CreateInstance(type, args) as Spell;
             }
             else
@@ -2536,7 +2597,7 @@ namespace Server.Mobiles
             {
                 Type type = m_arSpellDefense[Utility.Random(m_arSpellDefense.Count)];
 
-                object[] args = {this, null};
+                object[] args = { this, null };
                 return Activator.CreateInstance(type, args) as Spell;
             }
             else
@@ -2553,7 +2614,7 @@ namespace Server.Mobiles
             {
                 if (m_arSpellAttack[i] == type)
                 {
-                    object[] args = {this, null};
+                    object[] args = { this, null };
                     return Activator.CreateInstance(type, args) as Spell;
                 }
             }
@@ -2562,7 +2623,7 @@ namespace Server.Mobiles
             {
                 if (m_arSpellDefense[i] == type)
                 {
-                    object[] args = {this, null};
+                    object[] args = { this, null };
                     return Activator.CreateInstance(type, args) as Spell;
                 }
             }
@@ -2586,21 +2647,12 @@ namespace Server.Mobiles
 
         public void SetHits(int val)
         {
-            if (val < 1000)
-                val = val * 100 / 60;
-
             HitsMaxSeed = val;
             Hits = HitsMax;
         }
 
         public void SetHits(int min, int max)
         {
-            if (min < 1000)
-            {
-                min = min * 100 / 60;
-                max = max * 100 / 60;
-            }
-
             HitsMaxSeed = Utility.RandomMinMax(min, max);
             Hits = HitsMax;
         }
@@ -2667,7 +2719,7 @@ namespace Server.Mobiles
 
         public void SetSkill(SkillName name, double val)
         {
-            Skills[name].BaseFixedPoint = (int) (val * 10);
+            Skills[name].BaseFixedPoint = (int)(val * 10);
 
             if (Skills[name].Base > Skills[name].Cap)
             {
@@ -2677,8 +2729,8 @@ namespace Server.Mobiles
 
         public void SetSkill(SkillName name, double min, double max)
         {
-            int minFixed = (int) (min * 10);
-            int maxFixed = (int) (max * 10);
+            int minFixed = (int)(min * 10);
+            int maxFixed = (int)(max * 10);
 
             Skills[name].BaseFixedPoint = Utility.RandomMinMax(minFixed, maxFixed);
 
@@ -2805,15 +2857,15 @@ namespace Server.Mobiles
 
             if (LootTable == null || !ZhConfig.Loot.Tables.TryGetValue(LootTable, out var table))
                 return;
-            
+
             var backpack = Backpack;
             if (backpack == null)
             {
-                backpack = new Backpack {Movable = false};
+                backpack = new Backpack { Movable = false };
                 AddItem(backpack);
             }
 
-            LootGenerator.MakeLoot(backpack, table, LootItemLevel, LootItemChance);
+            LootGenerator.MakeLoot(LastKiller, backpack, table, LootItemLevel, LootItemChance);
         }
 
         public bool PackArmor(int minLevel, int maxLevel)
@@ -2834,8 +2886,8 @@ namespace Server.Mobiles
             if (armor == null)
                 return false;
 
-            armor.ProtectionLevel = (ArmorProtectionLevel) RandomMinMaxScaled(minLevel, maxLevel);
-            armor.Durability = (ArmorDurabilityLevel) RandomMinMaxScaled(minLevel, maxLevel);
+            armor.ProtectionLevel = (ArmorProtectionLevel)RandomMinMaxScaled(minLevel, maxLevel);
+            armor.Durability = (ArmorDurabilityLevel)RandomMinMaxScaled(minLevel, maxLevel);
 
             PackItem(armor);
 
@@ -2876,40 +2928,6 @@ namespace Server.Mobiles
             return val;
         }
 
-        public bool PackSlayer()
-        {
-            return PackSlayer(0.05);
-        }
-
-        public bool PackSlayer(double chance)
-        {
-            if (chance <= Utility.RandomDouble())
-                return false;
-
-            if (Utility.RandomBool())
-            {
-                BaseInstrument instrument = Loot.RandomInstrument();
-
-                if (instrument != null)
-                {
-                    instrument.OldSlayer = SlayerGroup.GetLootSlayerType(GetType());
-                    PackItem(instrument);
-                }
-            }
-            else
-            {
-                BaseWeapon weapon = Loot.RandomWeapon();
-
-                if (weapon != null)
-                {
-                    weapon.OldSlayer = SlayerGroup.GetLootSlayerType(GetType());
-                    PackItem(weapon);
-                }
-            }
-
-            return true;
-        }
-
         public bool PackWeapon(int minLevel, int maxLevel)
         {
             return PackWeapon(minLevel, maxLevel, 1.0);
@@ -2931,9 +2949,9 @@ namespace Server.Mobiles
             if (0.05 > Utility.RandomDouble())
                 weapon.OldSlayer = SlayerName.Silver;
 
-            weapon.DamageLevel = (WeaponDamageLevel) RandomMinMaxScaled(minLevel, maxLevel);
-            weapon.AccuracyLevel = (WeaponAccuracyLevel) RandomMinMaxScaled(minLevel, maxLevel);
-            weapon.DurabilityLevel = (WeaponDurabilityLevel) RandomMinMaxScaled(minLevel, maxLevel);
+            weapon.DamageLevel = (WeaponDamageLevel)RandomMinMaxScaled(minLevel, maxLevel);
+            weapon.AccuracyLevel = (WeaponAccuracyLevel)RandomMinMaxScaled(minLevel, maxLevel);
+            weapon.DurabilityLevel = (WeaponDurabilityLevel)RandomMinMaxScaled(minLevel, maxLevel);
 
             PackItem(weapon);
 
@@ -3070,8 +3088,8 @@ namespace Server.Mobiles
                 else
                     title = title.Trim();
 
-                if (guild.Type >= 0 && (int) guild.Type < m_GuildTypes.Length)
-                    type = m_GuildTypes[(int) guild.Type];
+                if (guild.Type >= 0 && (int)guild.Type < m_GuildTypes.Length)
+                    type = m_GuildTypes[(int)guild.Type];
                 else
                     type = "";
 
@@ -3086,7 +3104,9 @@ namespace Server.Mobiles
             if (NameHue != -1)
                 hue = NameHue;
             else
+            {
                 hue = Notoriety.GetHue(Notoriety.Compute(from, this));
+            }
 
             string name = Name;
 
@@ -3118,7 +3138,7 @@ namespace Server.Mobiles
 
             if (Controlled && Commandable)
             {
-                if(AnimatedDead)
+                if (AnimatedDead)
                     val = $"a Reanimated {ZuluUtil.TrimIndefiniteArticle(val)}";
                 else if (SpellBound)
                     val += " [spellbound]";
@@ -3131,14 +3151,26 @@ namespace Server.Mobiles
             if (IsInvulnerable)
                 val += " [invulnerable]";
 
+            if (BardEndTime > Core.Now)
+            {
+                var timeDiff = BardEndTime - Core.Now;
+                var timeVal = "";
+
+                if (timeDiff.Minutes > 0)
+                    timeVal += $"{timeDiff.Minutes}m ";
+
+                if (timeDiff.Seconds > 0)
+                    timeVal += $"{timeDiff.Seconds}s";
+
+                if (BardPacified)
+                    PrivateOverheadMessage(MessageType.Label, 0x9B, true, $"*pacified {timeVal}*", from.NetState);
+                else if (BardProvoked)
+                    PrivateOverheadMessage(MessageType.Label, 0x9B, true, $"*provoked {timeVal}*", from.NetState);
+
+            }
+
             PrivateOverheadMessage(MessageType.Label, hue, true, val, from.NetState);
         }
-
-        public virtual double TreasureMapChance
-        {
-            get { return TreasureMap.LootChance; }
-        }
-
 
         public virtual bool IgnoreYoungProtection
         {
@@ -3147,17 +3179,6 @@ namespace Server.Mobiles
 
         public override bool OnBeforeDeath()
         {
-            int treasureLevel = TreasureMapLevel;
-
-            if (!Summoned && !NoKillAwards)
-            {
-                if (treasureLevel >= 0)
-                {
-                    if (Map == Map.Felucca && TreasureMap.LootChance >= Utility.RandomDouble())
-                        PackItem(new TreasureMap(treasureLevel, Map));
-                }
-            }
-
             if (!Summoned && !NoKillAwards && !m_HasGeneratedLoot)
             {
                 m_HasGeneratedLoot = true;
@@ -3184,7 +3205,7 @@ namespace Server.Mobiles
                 if (de.Damager == m || !(de.Damager is BaseCreature))
                     continue;
 
-                BaseCreature bc = (BaseCreature) de.Damager;
+                BaseCreature bc = (BaseCreature)de.Damager;
                 Mobile master = null;
 
                 master = bc.GetMaster();
@@ -3285,7 +3306,7 @@ namespace Server.Mobiles
             if (rights.Count > 0)
             {
                 rights[0].m_Damage =
-                    (int) (rights[0].m_Damage *
+                    (int)(rights[0].m_Damage *
                            1.25
                     ); //This would be the first valid person attacking it.  Gets a 25% bonus.  Per 1/19/07 Five on Friday
 
@@ -3321,8 +3342,8 @@ namespace Server.Mobiles
 
         public override void OnDeath(Container c)
         {
-            if (RiseCreatureType != null)
-                OnRiseSpawn(RiseCreatureType, c);
+            if (RiseCreatureTemplate != null)
+                OnRiseSpawn(RiseCreatureTemplate, c);
 
             if (!Summoned && !NoKillAwards)
             {
@@ -3426,7 +3447,7 @@ namespace Server.Mobiles
 
         public override bool CanBeHarmful(Mobile target, bool message, bool ignoreOurBlessedness)
         {
-            if (target is BaseCreature && ((BaseCreature) target).IsInvulnerable || target is PlayerVendor ||
+            if (target is BaseCreature && ((BaseCreature)target).IsInvulnerable || target is PlayerVendor ||
                 target is TownCrier)
             {
                 if (message)
@@ -3467,11 +3488,17 @@ namespace Server.Mobiles
             }
             else
             {
-                ISpawner se = Spawner;
-                if (se != null && se.UnlinkOnTaming)
+                var se = Spawner;
+                if (se is { UnlinkOnTaming: true })
                 {
                     Spawner.Remove(this);
                     Spawner = null;
+                }
+
+                if (m.Followers + ControlSlots > m.FollowersMax)
+                {
+                    m.SendFailureMessage(1049607); // You have too many followers to control that creature.
+                    return false;
                 }
 
                 CurrentWayPoint = null; //so tamed animals don't try to go back
@@ -3525,6 +3552,13 @@ namespace Server.Mobiles
         public static bool Summon(BaseCreature creature, bool controlled, Mobile caster, Point3D p, int sound,
             TimeSpan duration)
         {
+            if (caster.Followers + creature.ControlSlots > caster.FollowersMax)
+            {
+                caster.SendFailureMessage(1049645); // You have too many followers to summon that creature.
+                creature.Delete();
+                return false;
+            }
+
             Summoning = true;
 
             if (controlled)
@@ -3560,6 +3594,26 @@ namespace Server.Mobiles
             return true;
         }
 
+        public virtual async Task SpitWeb(Mobile target)
+        {
+            Say("The spider spits a web!");
+
+            var toLocation = target.Location;
+
+            await Timer.Pause(300);
+
+            Effects.SendMovingEffect(target.Map, 0xEE4, Location, toLocation, 7, 0);
+
+            await Timer.Pause(200);
+
+            new SpiderWeb(toLocation, target.Map, TimeSpan.FromMinutes(2));
+
+            if (target.Location == toLocation)
+            {
+                SpiderWeb.Stick(target);
+            }
+        }
+
         private static bool EnableRummaging = true;
 
         private const double ChanceToRummage = 0.5; // 50%
@@ -3570,7 +3624,14 @@ namespace Server.Mobiles
         private const double MinutesToNextChanceMin = 0.25;
         private const double MinutesToNextChanceMax = 0.75;
 
-        private DateTime m_NextRummageTime;
+        private long m_NextRummageTime;
+
+        private long m_NextSpitWebTime;
+
+        public virtual bool CanSpitWebs
+        {
+            get { return HasWebs && !Summoned; }
+        }
 
         public virtual bool CanBreath
         {
@@ -3679,7 +3740,7 @@ namespace Server.Mobiles
 
             double seconds = (onSelf ? HealDelay : HealOwnerDelay) + (patient.Alive ? 0.0 : 5.0);
 
-            m_HealTimer = Timer.DelayCall(TimeSpan.FromSeconds(seconds), Heal_Callback, patient);
+            m_HealTimer = Timer.DelayCall(TimeSpan.FromSeconds(seconds), () => Heal_Callback(patient));
         }
 
         private void Heal_Callback(Mobile mobile)
@@ -3740,7 +3801,7 @@ namespace Server.Mobiles
 
                     toHeal *= HealScalar;
 
-                    patient.Heal((int) toHeal);
+                    patient.Heal((int)toHeal);
 
                     CheckSkill(SkillName.Healing, 0.0, 90.0);
                     CheckSkill(SkillName.Anatomy, 0.0, 100.0);
@@ -3772,7 +3833,7 @@ namespace Server.Mobiles
 
         #region Damaging Aura
 
-        private DateTime m_NextAura;
+        private long m_NextAura;
 
         public virtual bool HasAura
         {
@@ -3808,7 +3869,7 @@ namespace Server.Mobiles
 
                 if (m is BaseCreature)
                 {
-                    BaseCreature bc = (BaseCreature) m;
+                    BaseCreature bc = (BaseCreature)m;
 
                     if (bc.Controlled || bc.Summoned || bc.Team != Team)
                         list.Add(m);
@@ -3832,9 +3893,63 @@ namespace Server.Mobiles
 
         #endregion
 
+        private class TameEntry : ContextMenuEntry
+        {
+            private readonly BaseCreature m_Mobile;
+
+            public TameEntry(Mobile from, BaseCreature creature) : base(6130, 12)
+            {
+                m_Mobile = creature;
+            }
+
+            public override void OnClick()
+            {
+                if (!Owner.From.CheckAlive())
+                {
+                    return;
+                }
+
+                Owner.From.TargetLocked = true;
+
+                if (Owner.From.UseSkill(SkillName.AnimalTaming))
+                {
+                    Owner.From.Target.Invoke(Owner.From, m_Mobile);
+                }
+
+                Owner.From.TargetLocked = false;
+            }
+        }
+        
+        private class LoreEntry : ContextMenuEntry
+        {
+            private readonly BaseCreature m_Mobile;
+
+            public LoreEntry(Mobile from, BaseCreature creature) : base(-1997993, 12)
+            {
+                m_Mobile = creature;
+            }
+
+            public override void OnClick()
+            {
+                if (!Owner.From.CheckAlive())
+                {
+                    return;
+                }
+
+                Owner.From.TargetLocked = true;
+
+                if (Owner.From.UseSkill(SkillName.AnimalLore))
+                {
+                    Owner.From.Target.Invoke(Owner.From, m_Mobile);
+                }
+
+                Owner.From.TargetLocked = false;
+            }
+        }
+
         public virtual void OnThink()
         {
-            if (EnableRummaging && CanRummageCorpses && !Summoned && !Controlled && DateTime.Now >= m_NextRummageTime)
+            if (EnableRummaging && CanRummageCorpses && !Summoned && !Controlled && Core.TickCount >= m_NextRummageTime)
             {
                 double min, max;
 
@@ -3850,25 +3965,42 @@ namespace Server.Mobiles
                 }
 
                 double delay = min + Utility.RandomDouble() * (max - min);
-                m_NextRummageTime = DateTime.Now + TimeSpan.FromMinutes(delay);
+                m_NextRummageTime = Core.TickCount + (int)TimeSpan.FromMinutes(delay).TotalMilliseconds;
             }
 
-            if (CanBreath && DateTime.Now >= m_NextBreathTime
-            ) // tested: controlled dragons do breath fire, what about summoned skeletal dragons?
+            if (CanBreath && Core.TickCount >= m_NextBreathTime) // tested: controlled dragons do breath fire, what about summoned skeletal dragons?
             {
                 Mobile target = Combatant;
 
                 if (target != null && target.Alive && CanBeHarmful(target) && target.Map == Map &&
                     target.InRange(this, BreathRange) && InLOS(target) && !BardPacified)
                 {
-                    if (DateTime.Now - m_NextBreathTime < TimeSpan.FromSeconds(30) && Utility.RandomBool())
+                    if (Core.TickCount - m_NextBreathTime < (int)TimeSpan.FromSeconds(30).TotalMilliseconds && Utility.RandomBool())
                     {
                         BreathStart(target);
                     }
 
-                    m_NextBreathTime = DateTime.Now +
-                                       TimeSpan.FromSeconds(
-                                           BreathMinDelay + Utility.RandomDouble() * (BreathMaxDelay - BreathMinDelay));
+                    m_NextBreathTime = Core.TickCount +
+                                       (int)TimeSpan.FromSeconds(
+                                           BreathMinDelay + Utility.RandomDouble() * (BreathMaxDelay - BreathMinDelay)).TotalMilliseconds;
+                }
+            }
+
+            if (CanSpitWebs && Core.TickCount >= m_NextSpitWebTime)
+            {
+                Mobile target = Combatant;
+
+                if (target != null && target.Alive && CanBeHarmful(target) && target.Map == Map &&
+                    InLOS(target) && !BardPacified && !target.Paralyzed)
+                {
+                    if (Core.TickCount - m_NextSpitWebTime < (int)TimeSpan.FromSeconds(30).TotalMilliseconds && Utility.RandomBool())
+                    {
+                        SpitWeb(target);
+                    }
+
+                    m_NextSpitWebTime = Core.TickCount +
+                                         (int)TimeSpan.FromSeconds(
+                                             SpitWebMinDelay + Utility.RandomDouble() * (SpitWebMaxDelay - SpitWebMinDelay)).TotalMilliseconds;
                 }
             }
 
@@ -3883,14 +4015,14 @@ namespace Server.Mobiles
                     HealStart(owner);
 
                     m_NextHealOwnerTime =
-                        Core.TickCount + (int) TimeSpan.FromSeconds(HealOwnerInterval).TotalMilliseconds;
+                        Core.TickCount + (int)TimeSpan.FromSeconds(HealOwnerInterval).TotalMilliseconds;
                 }
                 else if (CanHeal && Core.TickCount >= m_NextHealTime && CanBeBeneficial(this) &&
                          (Hits < HealTrigger * HitsMax || Poisoned))
                 {
                     HealStart(this);
 
-                    m_NextHealTime = Core.TickCount + (int) TimeSpan.FromSeconds(HealInterval).TotalMilliseconds;
+                    m_NextHealTime = Core.TickCount + (int)TimeSpan.FromSeconds(HealInterval).TotalMilliseconds;
                 }
             }
 
@@ -3913,10 +4045,10 @@ namespace Server.Mobiles
                 m_FailedReturnHome = 0;
             }
 
-            if (HasAura && DateTime.Now >= m_NextAura)
+            if (HasAura && Core.TickCount >= m_NextAura)
             {
                 AuraDamage();
-                m_NextAura = DateTime.Now + AuraInterval;
+                m_NextAura = Core.TickCount + (int)AuraInterval.TotalMilliseconds;
             }
         }
 
@@ -3928,7 +4060,7 @@ namespace Server.Mobiles
             {
                 if (item is Corpse && item.Items.Count > 0)
                 {
-                    toRummage = (Corpse) item;
+                    toRummage = (Corpse)item;
                     break;
                 }
             }
@@ -3963,9 +4095,20 @@ namespace Server.Mobiles
 
             return false;
         }
+        
+        public override int GetAttackSound()
+        {
+            if (Weapon is BaseWeapon weapon && weapon.HitSound != null && weapon.HitSound > 0)
+            {
+                return weapon.HitSound;
+            }
+
+            return base.GetAttackSound();
+        }
 
         public void Pacify(Mobile master, DateTime endtime)
         {
+            PublicOverheadMessage(MessageType.Emote, EmoteHue, false, "*looks calm*");
             BardPacified = true;
             BardEndTime = endtime;
         }
@@ -3999,7 +4142,7 @@ namespace Server.Mobiles
 
                 if (target is BaseCreature)
                 {
-                    BaseCreature t = (BaseCreature) target;
+                    BaseCreature t = (BaseCreature)target;
 
                     if (t.Unprovokable)
                         return;
@@ -4069,7 +4212,7 @@ namespace Server.Mobiles
             {
                 if (m is BaseCreature)
                 {
-                    BaseCreature pet = (BaseCreature) m;
+                    BaseCreature pet = (BaseCreature)m;
 
                     if (pet.Controlled && pet.ControlMaster == master)
                     {
@@ -4189,7 +4332,7 @@ namespace Server.Mobiles
 
         public bool CheckSkill(SkillName skillName, int difficulty, int points)
         {
-            if (skillName != SkillName.DetectHidden)
+            if (skillName != SkillName.DetectHidden && skillName != SkillName.MagicResist)
                 return true;
 
             return PercentSkillCheck(this, skillName, points);
@@ -4204,6 +4347,7 @@ namespace Server.Mobiles
         #region BuffManager
 
         private BuffManager m_BuffManager;
+        private string m_CorpseNameOverride;
         public BuffManager BuffManager => m_BuffManager ??= new BuffManager(this);
 
         #endregion

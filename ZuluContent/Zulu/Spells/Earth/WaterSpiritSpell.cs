@@ -12,11 +12,11 @@ namespace Scripts.Zulu.Spells.Earth
 {
     public class WaterSpiritSpell : EarthSpell, IAsyncSpell
     {
-        public WaterSpiritSpell(Mobile caster, Item spellItem) : base(caster, spellItem) { }
+        public WaterSpiritSpell(Mobile caster, Item spellItem = null) : base(caster, spellItem) { }
 
         public async Task CastAsync()
         {
-            SpellHelper.Summon(new WaterElementalLord(), Caster, 0x217);
+            SpellHelper.Summon("WaterElementalLord", Caster, 0x217);
         }
     }
 }

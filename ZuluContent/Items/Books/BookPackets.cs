@@ -30,11 +30,11 @@ namespace Server.Items
             IncomingPackets.Register(0x93, 99, true, OldHeaderChange);
         }
 
-        public static void OldHeaderChange(NetState state, CircularBufferReader reader, ref int packetLength)
+        public static void OldHeaderChange(NetState state, CircularBufferReader reader, int packetLength)
         {
             var from = state.Mobile;
 
-            if (!(World.FindItem(reader.ReadUInt32()) is BaseBook book) || !book.Writable ||
+            if (!(World.FindItem((Serial) reader.ReadUInt32()) is BaseBook book) || !book.Writable ||
                 !from.InRange(book.GetWorldLocation(), 1) || !book.IsAccessibleTo(from))
             {
                 return;
@@ -49,11 +49,11 @@ namespace Server.Items
             book.Author = Utility.FixHtml(author);
         }
 
-        public static void HeaderChange(NetState state, CircularBufferReader reader, ref int packetLength)
+        public static void HeaderChange(NetState state, CircularBufferReader reader, int packetLength)
         {
             var from = state.Mobile;
 
-            if (!(World.FindItem(reader.ReadUInt32()) is BaseBook book) || !book.Writable ||
+            if (!(World.FindItem((Serial) reader.ReadUInt32()) is BaseBook book) || !book.Writable ||
                 !from.InRange(book.GetWorldLocation(), 1) || !book.IsAccessibleTo(from))
             {
                 return;
@@ -85,11 +85,11 @@ namespace Server.Items
             book.Author = Utility.FixHtml(author);
         }
 
-        public static void ContentChange(NetState state, CircularBufferReader reader, ref int packetLength)
+        public static void ContentChange(NetState state, CircularBufferReader reader, int packetLength)
         {
             var from = state.Mobile;
 
-            if (!(World.FindItem(reader.ReadUInt32()) is BaseBook book) || !book.Writable ||
+            if (!(World.FindItem((Serial) reader.ReadUInt32()) is BaseBook book) || !book.Writable ||
                 !from.InRange(book.GetWorldLocation(), 1) || !book.IsAccessibleTo(from))
             {
                 return;

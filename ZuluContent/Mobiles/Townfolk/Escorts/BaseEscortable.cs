@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using Server.Items;
 using EDI = Server.Mobiles.EscortDestinationInfo;
@@ -458,8 +459,6 @@ namespace Server.Mobiles
                 : base(delay)
             {
                 m_Mobile = m;
-
-                Priority = TimerPriority.OneSecond;
             }
 
             protected override void OnTick()
@@ -502,7 +501,7 @@ namespace Server.Mobiles
             m_Region = region;
         }
 
-        private static Hashtable m_Table;
+        private static ConcurrentDictionary<string, EscortDestinationInfo> m_Table = new();
 
         public static void LoadTable()
         {
@@ -510,8 +509,6 @@ namespace Server.Mobiles
 
             if (list.Count == 0)
                 return;
-
-            m_Table = new Hashtable();
 
             foreach (Region r in list)
             {
@@ -528,10 +525,10 @@ namespace Server.Mobiles
             if (m_Table == null)
                 LoadTable();
 
-            if (name == null || m_Table == null)
+            if (name == null || m_Table == null || !m_Table.ContainsKey(name))
                 return null;
 
-            return (EscortDestinationInfo) m_Table[name];
+            return m_Table[name];
         }
     }
 }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using Server.Network;
 using Server.Engines.Craft;
 using Server.Engines.Magic;
@@ -146,7 +147,7 @@ namespace Server.Items
                 var ar = BaseArmorRating;
 
                 if (ProtectionLevel != ArmorProtectionLevel.Regular)
-                    ar += 10 + 5 * (int) ProtectionLevel;
+                    ar += 5 * (int) ProtectionLevel;
 
                 ar = (int) (ar * Quality);
 
@@ -405,15 +406,18 @@ namespace Server.Items
             return false;
         }
 
-        public static Dictionary<ArmorBodyType, double> ArmorScalars = new()
+        public static readonly IReadOnlyDictionary<ArmorBodyType, double> ArmorScalars = new Dictionary<ArmorBodyType, double>
         {
-            {ArmorBodyType.InnerChest, 0.4},
-            {ArmorBodyType.Arms, 0.15},
+            {ArmorBodyType.OuterChest, 0.44},
+            {ArmorBodyType.InnerChest, 0.44},
+            {ArmorBodyType.Arms, 0.14},
             {ArmorBodyType.InnerLegs, 0.15},
+            {ArmorBodyType.Pants, 0.14},
+            {ArmorBodyType.OuterLegs, 0.14},
+            {ArmorBodyType.Necklace, 0.7},
             {ArmorBodyType.Gorget, 0.07},
             {ArmorBodyType.Gloves, 0.07},
-            {ArmorBodyType.Helmet, 0.15},
-            {ArmorBodyType.Shield, 0.56}
+            {ArmorBodyType.Helmet, 0.14},
         };
 
         public static void ValidateMobile(Mobile m)
@@ -458,7 +462,7 @@ namespace Server.Items
             }
         }
 
-        public virtual double ScaleArmorByDurability(double armor)
+        public double ScaleArmorByDurability(double armor)
         {
             return armor * ((double) HitPoints / (double) MaxHitPoints);
         }
@@ -956,57 +960,27 @@ namespace Server.Items
             base.OnRemoved(parent);
         }
 
-        public virtual int OnHit(BaseWeapon weapon, int damageTaken)
+        public virtual double OnHit(BaseWeapon weapon, double damageTaken)
         {
-            double halfAr = ArmorRating / 2.0;
-            int absorbed = (int) (halfAr + halfAr * Utility.RandomDouble());
-
-            damageTaken -= absorbed;
-            if (damageTaken < 0)
-                damageTaken = 0;
-
-            if (absorbed < 2)
-                absorbed = 2;
-
-            if (25 > Utility.Random(100)) // 25% chance to lower durability
+            if (weapon.Type == WeaponType.Bashing)
             {
-                int wear;
-
-                if (weapon.Type == WeaponType.Bashing)
-                    wear = absorbed / 2;
-                else
-                    wear = Utility.Random(2);
-
-                if (wear > 0 && MaxHitPoints > 0)
+                if (MaxHitPoints > 0)
                 {
-                    if (m_HitPoints >= wear)
-                    {
-                        HitPoints -= wear;
-                        wear = 0;
-                    }
-                    else
-                    {
-                        wear -= HitPoints;
-                        HitPoints = 0;
-                    }
-
-                    if (wear > 0)
-                    {
-                        if (MaxHitPoints > wear)
-                        {
-                            MaxHitPoints -= wear;
-
-                            if (Parent is Mobile mobile) // Your equipment is severely damaged.
-                                mobile.LocalOverheadMessage(MessageType.Regular, 0x3B2, 1061121);
-                        }
-                        else
-                        {
-                            Delete();
-                        }
-                    }
+                    if (Utility.Random(100) < 5)
+                        HitPoints -= 1;
                 }
             }
+            else if (Utility.Random(100) < 2)
+            {
+                if (MaxHitPoints > 0)
+                    HitPoints -= 1;
+            }
 
+            if (Quality > 0 && HitPoints < 1)
+            {
+                Delete();
+            }
+            
             return damageTaken;
         }
 
@@ -1018,8 +992,8 @@ namespace Server.Items
         [Hue, CommandProperty(AccessLevel.GameMaster)]
         public override int Hue
         {
-            get { return base.Hue; }
-            set { base.Hue = value; }
+            get => Identified ? base.Hue : 0x0;
+            set => base.Hue = value;
         }
         
         public override void OnSingleClick(Mobile from)

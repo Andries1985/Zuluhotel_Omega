@@ -7,6 +7,7 @@ using Server;
 using Server.Engines.Magic;
 using Server.Spells;
 using ZuluContent.Zulu.Engines.Magic.Enchantments;
+using ZuluContent.Zulu.Items;
 
 namespace ZuluContent.Zulu.Engines.Magic.Enums
 {
@@ -105,10 +106,10 @@ namespace ZuluContent.Zulu.Engines.Magic.Enums
         
         public void SetFromResourceType(Type enchantmentType, int value)
         {
-            if (!enchantmentType.IsInstanceOfType(typeof(IEnchantmentValue)))
+            if (!typeof(IEnchantmentValue).IsAssignableFrom(enchantmentType))
             {
                 Console.WriteLine(
-                    $"{nameof(SetFromResourceType)}: Attempted to set an enchantment of type ${enchantmentType.Name} " +
+                    $"{nameof(SetFromResourceType)}: Attempted to set an enchantment of type {enchantmentType.Name} " +
                     $"but that type is not an instance of {nameof(IEnchantmentValue)}"
                 );
                 return;
@@ -152,7 +153,7 @@ namespace ZuluContent.Zulu.Engines.Magic.Enums
         {
             foreach (var value in Values.Values)
             {
-                if (value.GetShouldDye())
+                if (item is not IGMItem && value.GetShouldDye())
                     item.Hue = value.Info.Hue;
 
                 value.OnIdentified(item);

@@ -1,21 +1,16 @@
 using System;
 using System.Linq;
 using Scripts.Zulu.Engines.Classes;
-using Server.Commands;
-using Server.Engines.Craft;
 using Server.Engines.Magic;
 using Server.Items;
 using Server.Mobiles;
 using Server.Spells;
-using Server.Targeting;
 using Server.Utilities;
 using ZuluContent.Zulu.Engines.Magic.Enchantments;
 using ZuluContent.Zulu.Engines.Magic.Enums;
-using ZuluContent.Zulu.Items;
 using static Server.Utility;
-using static Server.Engines.Magic.IElementalResistible;
-using System.Collections.Generic;
 using ZuluContent.Zulu.Engines.Magic;
+using ZuluContent.Zulu.Items;
 
 namespace Server.Scripts.Engines.Loot
 {
@@ -37,6 +32,8 @@ namespace Server.Scripts.Engines.Loot
 
         public bool Cursed = false;
 
+        public bool Deleted = false;
+
         //TODO: Temp attributes
 
         public ElementalType ProtectionType;
@@ -51,11 +48,14 @@ namespace Server.Scripts.Engines.Loot
         public int BonusDex;
         public SkillName SkillBonusName;
         public int SkillBonusValue;
+        public int SkillBonusMultiplier;
         public SpellEntry SpellHitEntry { get; set; } = SpellEntry.None;
         public double SpellHitChance { get; set; }
         public CreatureType CreatureProtection { get; set; }
         public EffectHitType EffectHitType { get; set; }
         public double EffectHitTypeChance { get; set; }
+        
+        public static bool StaffRevealMagicItems { get; set; } = true;
 
         public LootItem(Type t)
         {
@@ -65,7 +65,7 @@ namespace Server.Scripts.Engines.Loot
         public bool Is<T>() => Type.IsSubclassOf(typeof(T));
 
 
-        public Item Create()
+        public Item Create(Mobile? killedBy)
         {
             Item item = null;
             try
@@ -85,8 +85,6 @@ namespace Server.Scripts.Engines.Loot
 
             if (item is IMagicItem magicItem)
             {
-                magicItem.Identified = false;
-
                 if (SkillBonusValue > 0)
                 {
                     magicItem.Enchantments.Set((FirstSkillBonus e) =>
@@ -134,10 +132,11 @@ namespace Server.Scripts.Engines.Loot
                     case BaseJewel jewelry:
                         jewelry.ArmorBonusType = ArmorMod;
 
-                        if (ProtectionType >= ElementalType.None)
+                        if (ProtectionType > ElementalType.None)
                         {
-                            jewelry.TrySetResist(ProtectionType, ProtectionLevel);
-                            if (ProtectionCharges > 0)
+                            if (ProtectionLevel > 0)
+                                jewelry.TrySetResist(ProtectionType, ProtectionLevel);
+                            else if (ProtectionCharges > 0)
                                 jewelry.SetResistCharges(ProtectionType, ProtectionCharges);
                         }
                         break;
@@ -150,6 +149,14 @@ namespace Server.Scripts.Engines.Loot
                         value.Cursed = CurseType.Unrevealed;
                     }
                 }
+
+                if (StaffRevealMagicItems && killedBy?.AccessLevel >= AccessLevel.GameMaster)
+                {
+                    magicItem.Identified = true;
+                    magicItem.Enchantments.OnIdentified(item);
+                }
+                else
+                    magicItem.Identified = false;
             }
 
             return item;
@@ -159,15 +166,20 @@ namespace Server.Scripts.Engines.Loot
 
     public static class LootGenerator
     {
-        public static int MakeLoot(Container container, LootTable table, int itemLevel, double itemChance)
+        public static int MakeLoot(Mobile killedBy, Container container, LootTable table, int itemLevel, double itemChance)
         {
             var items = table.Roll(itemLevel, itemChance)
                 .Select(lootItem =>
                 {
                     // Attempt to make the item magical, will do nothing if its not eligible.
-                    MakeItemMagical(lootItem);
-                    return lootItem.Create();
+                    MakeItemMagical(lootItem, container);
+
+                    if (lootItem.Deleted)
+                        return null;
+                    
+                    return lootItem.Create(killedBy);
                 })
+                .Where(item => item != null)
                 // Group the items by id and whether they're stackable
                 .GroupBy(item => new {item.Stackable, item.ItemID})
                 // Flattens a collection containing many collections of the same type,
@@ -192,7 +204,7 @@ namespace Server.Scripts.Engines.Loot
             return items.Count();
         }
 
-        public static bool MakeItemMagical(LootItem item)
+        public static bool MakeItemMagical(LootItem item, Container container)
         {
             bool isMagic = false;
 
@@ -217,7 +229,15 @@ namespace Server.Scripts.Engines.Loot
 
             switch (item.Type)
             {
-                case not null when item.Is<BaseWeapon>():
+                case not null when !item.Is<IGMItem>() &&
+                                   (item.Type == typeof(SmithHammer) || item.Type == typeof(Pickaxe)):
+                {
+                    ApplyMiscSkillMod(item, item.Type == typeof(SmithHammer) ? SkillName.Blacksmith : SkillName.Mining,
+                        3);
+                    break;
+                }
+                
+                case not null when !item.Is<IGMItem>() && item.Is<BaseWeapon>() && item.Type != typeof(BaseWand):
                 {
                     if (RandomDouble() < 0.2)
                         if (RandomBool())
@@ -239,14 +259,14 @@ namespace Server.Scripts.Engines.Loot
                             ApplyDamageMod(item);
                             break;
                         default:
-                            ApplyWeaponHitScript(item);
+                            ApplyWeaponHitScript(item, container);
                             break;
                     }
 
                     break;
                 }
 
-                case not null when item.Is<BaseShield>():
+                case not null when !item.Is<IGMItem>() && item.Is<BaseShield>():
                 {
                     switch (item.EnchantLevel)
                     {
@@ -267,10 +287,12 @@ namespace Server.Scripts.Engines.Loot
                 case not null when item.Is<BaseClothing>():
                 {
                     if (item.EnchantLevel < 2.5)
+                    {
                         ApplyMiscSkillMod(item);
+                        AddRandomColor(item);
+                    }
                     else
                         ApplyMiscArmorMod(item);
-                    AddRandomColor(item);
                     break;
                 }
 
@@ -292,13 +314,7 @@ namespace Server.Scripts.Engines.Loot
                     break;
                 }
 
-                case not null when item.Is<BaseTool>() || item.Type == typeof(Pickaxe):
-                {
-                    ApplyMiscSkillMod(item);
-                    break;
-                }
-
-                case not null when item.Is<BaseArmor>():
+                case not null when item.Is<BaseArmor>() && !item.Is<IGMItem>():
                 {
                     switch (item.EnchantLevel)
                     {
@@ -312,7 +328,7 @@ namespace Server.Scripts.Engines.Loot
                             ApplyArmorMod(item);
                             break;
                         default:
-                            ApplyOnHitScript(item);
+                            ApplyOnHitScript(item, container);
                             break;
                     }
 
@@ -327,22 +343,22 @@ namespace Server.Scripts.Engines.Loot
 
         private static void ApplyCursed(LootItem item)
         {
-            if (Utility.Random(1, 100) <= 5)
+            if (RandomMinMax(1, 100) <= 5)
                 item.Cursed = true;
         }
 
 
-        private static void ApplyMiscSkillMod(LootItem item)
+        private static void ApplyMiscSkillMod(LootItem item, SkillName? skillBonus = null, int skillBonusMultiplier = 0)
         {
-            var chance = Utility.Random(1, 1000);
+            var chance = RandomMinMax(1, 1000);
             if (chance <= 5)
             {
                 ApplyStatMod(item);
                 return;
             }
 
-            var level = Utility.Random(1, 50) * item.ItemLevel * 2;
-            int value = 0;
+            var level = RandomMinMax(1, 50) * item.ItemLevel * 2;
+            var value = 0;
 
 
             switch (item.ItemLevel / 3)
@@ -354,12 +370,6 @@ namespace Server.Scripts.Engines.Loot
                 case 2:
                     if (level < 300)
                         level = 300;
-                    break;
-                case 3:
-                case 4:
-                case 5:
-                    if (level < 400)
-                        level = 400;
                     break;
             }
 
@@ -373,17 +383,81 @@ namespace Server.Scripts.Engines.Loot
                 _ => 6
             };
 
-            var skill = RandomSkill();
+            if (skillBonus != null)
+            {
+                item.SkillBonusName = (SkillName)skillBonus;
+                item.SkillBonusValue = skillBonusMultiplier > 0 ? value * skillBonusMultiplier : value;
+            }
+            else
+            {
+                var skill = RandomSkill();
+            
+                if (ZuluClass.ClassSkills[ZuluClassType.Mage].Contains(skill) && item.ArmorMod > 0 && RandomBool())
+                    item.ArmorMod = 0;
 
-            if (ZuluClass.ClassSkills[ZuluClassType.Mage].Contains(skill) && item.ArmorMod > 0 && RandomBool())
-                item.ArmorMod = 0;
-
-            item.SkillBonusName = skill;
-            item.SkillBonusValue = value;
-            item.Hue = 1109;
+                item.SkillBonusName = skill;
+                item.SkillBonusValue = value;
+            }
         }
 
-        private static void ApplyOnHitScript(LootItem item)
+        private static void ApplyOnHitScript(LootItem item, Container container)
+        {
+            var scriptType = RandomMinMax(1, 95) + item.ItemLevel * 2;
+            
+            if (scriptType <= 80)
+                ApplyResistantHitscript(item);
+            else if (scriptType is > 100 and <= 105)
+            {
+                item.Deleted = true;
+                var gmArmor = CreateRandomGMArmor();
+                container.AddItem(gmArmor);
+            }
+        }
+
+
+        private static void ApplyWeaponHitScript(LootItem item, Container container)
+        {
+            var scriptType = RandomMinMax(1, 95) + item.ItemLevel * 2;
+
+            if (scriptType <= 40)
+                ApplySpellHitscript(item);
+            else if (scriptType <= 80)
+                ApplySlayerHitscript(item);
+            else if (scriptType <= 100)
+                ApplyEffectHitscript(item);
+            else if (scriptType <= 105)
+            {
+                item.Deleted = true;
+                var gmWeapon = CreateRandomGMWeapon();
+                container.AddItem(gmWeapon);
+            }
+            else
+                ApplyGreaterHitscript(item);
+        }
+
+        private static void ApplyGreaterHitscript(LootItem item)
+        {
+            item.EffectHitType = (EffectHitType) RandomMinMax(6, 8);
+            item.EffectHitTypeChance = 1.0;
+        }
+
+        private static void ApplyEffectHitscript(LootItem item)
+        {
+            item.EffectHitType = (EffectHitType) RandomMinMax(1, 5);
+            item.EffectHitTypeChance = 1.0;
+        }
+
+        private static void ApplySlayerHitscript(LootItem item)
+        {
+            var creature = Enum.GetValues(typeof(CreatureType))
+                .OfType<CreatureType>()
+                .ToList()
+                .RandomElement();
+
+            item.SlayerType = creature;
+        }
+
+        private static void ApplyResistantHitscript(LootItem item)
         {
             var creature = Enum.GetValues(typeof(CreatureType))
                 .OfType<CreatureType>()
@@ -393,56 +467,9 @@ namespace Server.Scripts.Engines.Loot
             item.CreatureProtection = creature;
         }
 
-
-        private static void ApplyWeaponHitScript(LootItem item)
-        {
-            var scriptType = Utility.Random(1, 100) + item.ItemLevel * 2;
-
-            if (scriptType <= 50)
-                ApplySpellHitscript(item);
-            else if (scriptType <= 85)
-                ApplySlayerHitscript(item);
-            else if (scriptType <= 112)
-                ApplyEffectHitscript(item);
-            else if (scriptType <= 116)
-            {
-                if (RandomBool())
-                    ApplyGreaterHitscript(item);
-                else
-                {
-                    // TODO: GM Item
-                    // DestroyItem(item);
-                    // CreateFromRandomString(who, "GMWeapon");
-                }
-            }
-            else
-                ApplyEffectHitscript(item);
-        }
-
-        private static void ApplyGreaterHitscript(LootItem item)
-        {
-            item.EffectHitType = (EffectHitType) RandomMinMax(1, 6);
-            item.EffectHitTypeChance = 1.0;
-        }
-
-        private static void ApplyEffectHitscript(LootItem item)
-        {
-            item.EffectHitType = (EffectHitType) RandomMinMax(7, 9);
-            item.EffectHitTypeChance = 1.0;
-        }
-
-        private static void ApplySlayerHitscript(LootItem item)
-        {
-            var slayers = Enum.GetValues(typeof(CreatureType)).OfType<CreatureType>().ToList();
-
-            var slayer = slayers[Utility.Random(slayers.Count)];
-
-            item.SlayerType = slayer;
-        }
-
         private static void ApplySpellHitscript(LootItem item)
         {
-            var roll = (Utility.Random(100) + 1) * (item.ItemLevel - 3);
+            var roll = RandomMinMax(1, 100) * (item.ItemLevel - 3);
 
             var circle = roll switch
             {
@@ -456,12 +483,13 @@ namespace Server.Scripts.Engines.Loot
             };
 
             var spellEntry = SpellHit.Spells.Keys
+                .Skip(1)
                 .Where(k => SpellRegistry.GetInfo(k)?.Circle == circle)
                 .ToList()
                 .RandomElement();
 
 
-            var effectChance = Utility.Random(1, 10) * item.ItemLevel / (double) 100;
+            var effectChance = RandomMinMax(1, 10) * item.ItemLevel / (double) 100;
             // var effectChancemod = hitscriptcfg[n].ChanceOfEffectMod;
 
             var effectChanceMod = 0.0;
@@ -496,7 +524,7 @@ namespace Server.Scripts.Engines.Loot
 
         private static void ApplyStatMod(LootItem item)
         {
-            var level = Utility.Random(1, 100) * item.ItemLevel;
+            var level = RandomMinMax(1, 100) * item.ItemLevel;
 
             int amount = level switch
             {
@@ -508,7 +536,7 @@ namespace Server.Scripts.Engines.Loot
                 _ => 30
             };
 
-            switch (Utility.Random(1, 3))
+            switch (RandomMinMax(1, 3))
             {
                 case 1:
                     item.BonusStr = amount;
@@ -521,13 +549,13 @@ namespace Server.Scripts.Engines.Loot
                     break;
             }
 
-            if (Utility.Random(1, 100) <= 2 * item.ItemLevel)
+            if (RandomMinMax(1, 100) <= 2 * item.ItemLevel)
                 ApplyDurabilityMod(item);
         }
 
         private static void ApplyEnchant(LootItem item)
         {
-            var level = Utility.Random(1, 100) * item.ItemLevel;
+            var level = RandomMinMax(1, 100) * item.ItemLevel;
 
             if (level < 200)
             {
@@ -541,9 +569,9 @@ namespace Server.Scripts.Engines.Loot
             }
 
 
-            if (Utility.Random(1, 100) <= 5 * item.ItemLevel)
+            if (RandomMinMax(1, 100) <= 5 * item.ItemLevel)
             {
-                level = Utility.Random(1, 100);
+                level = RandomMinMax(1, 100);
 
                 if (level < 75)
                     ApplyMiscSkillMod(item);
@@ -554,7 +582,7 @@ namespace Server.Scripts.Engines.Loot
 
         private static void ApplyProtection(LootItem item)
         {
-            var level = Utility.Random(1, 50) * item.ItemLevel * 2;
+            var level = RandomMinMax(1, 50) * item.ItemLevel * 2;
             int charges = 0;
             ElementalType chargeProtection = 0;
 
@@ -586,7 +614,7 @@ namespace Server.Scripts.Engines.Loot
                 _ => 30
             };
 
-            chargeProtection = Utility.Random(1, 3) switch
+            chargeProtection = RandomMinMax(1, 3) switch
             {
                 1 => ElementalType.Poison,
                 2 => ElementalType.MagicImmunity,
@@ -600,7 +628,7 @@ namespace Server.Scripts.Engines.Loot
 
         private static void ApplyImmunity(LootItem item)
         {
-            var level = Utility.Random(1, 100) * (item.ItemLevel - 3);
+            var level = RandomMinMax(1, 100) * (item.ItemLevel - 3);
             ElementalProtectionLevel value = 0;
             ElementalType element = 0;
 
@@ -632,7 +660,7 @@ namespace Server.Scripts.Engines.Loot
                 _ => ElementalProtectionLevel.Absorbsion
             };
 
-            switch (Utility.Random(1, 3))
+            switch (RandomMinMax(1, 3))
             {
                 case 1:
                     element = ElementalType.Poison;
@@ -651,7 +679,7 @@ namespace Server.Scripts.Engines.Loot
 
         private static void ApplyElementalImmunity(LootItem item)
         {
-            var level = Utility.Random(1, 100) * item.ItemLevel;
+            var level = RandomMinMax(1, 100) * item.ItemLevel;
             ElementalProtectionLevel value = 0;
             ElementalType element = 0;
 
@@ -683,7 +711,7 @@ namespace Server.Scripts.Engines.Loot
                 _ => ElementalProtectionLevel.Absorbsion
             };
 
-            switch (Utility.Random(1, 8))
+            switch (RandomMinMax(1, 8))
             {
                 case 1:
                     element = ElementalType.Fire;
@@ -720,13 +748,13 @@ namespace Server.Scripts.Engines.Loot
         {
             do
             {
-                item.Hue = Utility.Random(1, 1184);
+                item.Hue = RandomMinMax(1, 1184);
             } while (item.Hue > 999 && item.Hue < 1152);
         }
 
         private static void ApplyDamageMod(LootItem item)
         {
-            var level = Utility.Random(1, 50) * item.ItemLevel * 2;
+            var level = RandomMinMax(1, 50) * item.ItemLevel * 2;
             WeaponDamageLevel value = 0;
 
             switch (item.ItemLevel / 3)
@@ -757,9 +785,9 @@ namespace Server.Scripts.Engines.Loot
                 _ => WeaponDamageLevel.Devastation
             };
 
-            if (Utility.Random(1, 100) <= 10 * item.ItemLevel)
+            if (RandomMinMax(1, 100) <= 10 * item.ItemLevel)
             {
-                if (Utility.Random(1, 100) <= 75)
+                if (RandomMinMax(1, 100) <= 75)
                     ApplyDurabilityMod(item);
                 else
                     ApplyArmorSkillMod(item);
@@ -770,7 +798,7 @@ namespace Server.Scripts.Engines.Loot
 
         private static void ApplyMiscArmorMod(LootItem item)
         {
-            var level = Utility.Random(1, 50) * item.ItemLevel * 2;
+            var level = RandomMinMax(1, 50) * item.ItemLevel * 2;
 
             switch (item.ItemLevel / 3)
             {
@@ -802,21 +830,21 @@ namespace Server.Scripts.Engines.Loot
 
             item.ArmorMod = value;
 
-            if (Utility.Random(100) + 1 <= 8 * item.ItemLevel)
+            if (RandomMinMax(1, 100) <= 8 * item.ItemLevel)
                 ApplyMiscSkillMod(item);
         }
 
 
         private static void ApplyWeaponSkillMod(LootItem item)
         {
-            var chance = Utility.Random(1, 1000);
+            var chance = RandomMinMax(1, 1000);
             if (chance <= 5)
             {
                 ApplyStatMod(item);
                 return;
             }
 
-            var level = Utility.Random(1, 50) * item.ItemLevel * 2;
+            var level = RandomMinMax(1, 50) * item.ItemLevel * 2;
 
             switch (item.ItemLevel / 3)
             {
@@ -828,41 +856,34 @@ namespace Server.Scripts.Engines.Loot
                     if (level < 200)
                         level = 200;
                     break;
-                case 3:
-                case 4:
-                case 5:
-                    if (level < 350)
-                        level = 350;
-                    break;
             }
 
             var value = level switch
             {
-                < 100 => WeaponAccuracyLevel.Regular,
-                < 200 => WeaponAccuracyLevel.Accurate,
+                < 100 => WeaponAccuracyLevel.Accurate,
+                < 200 => WeaponAccuracyLevel.Precisely,
                 < 350 => WeaponAccuracyLevel.Surpassingly,
                 < 450 => WeaponAccuracyLevel.Eminently,
                 < 550 => WeaponAccuracyLevel.Exceedingly,
                 _ => WeaponAccuracyLevel.Supremely
             };
 
-            // TODO: convert into weapon BaseWeapon.DefSkill on random bool
             item.AccuracyLevel = value;
 
-            if (Utility.Random(1, 100) < 5 * item.ItemLevel)
+            if (RandomMinMax(1, 100) < 5 * item.ItemLevel)
                 ApplyDurabilityMod(item);
         }
 
         private static void ApplyArmorSkillMod(LootItem item)
         {
-            var chance = Utility.Random(1, 1000);
+            var chance = RandomMinMax(1, 1000);
             if (chance <= 5)
             {
                 ApplyStatMod(item);
                 return;
             }
 
-            var level = Utility.Random(1, 50) * item.ItemLevel * 2;
+            var level = RandomMinMax(1, 50) * item.ItemLevel * 2;
 
             switch (item.ItemLevel / 3)
             {
@@ -895,13 +916,13 @@ namespace Server.Scripts.Engines.Loot
             item.SkillBonusName = RandomBool() ? SkillName.MagicResist : SkillName.Hiding;
             item.SkillBonusValue = value;
 
-            if (Utility.Random(1, 100) <= 5 * item.ItemLevel)
+            if (RandomMinMax(1, 100) <= 5 * item.ItemLevel)
                 ApplyDurabilityMod(item);
         }
 
         private static void ApplyArmorMod(LootItem item)
         {
-            var level = Utility.Random(1, 50) * item.ItemLevel * 2;
+            var level = RandomMinMax(1, 50) * item.ItemLevel * 2;
             var value = ArmorProtectionLevel.Regular;
 
             switch (item.ItemLevel / 3)
@@ -932,9 +953,9 @@ namespace Server.Scripts.Engines.Loot
                 _ => ArmorProtectionLevel.Invincibility
             };
 
-            if (Utility.Random(1, 100) <= 10 * item.ItemLevel)
+            if (RandomMinMax(1, 100) <= 10 * item.ItemLevel)
             {
-                if (Utility.Random(1, 100) <= 75)
+                if (RandomMinMax(1, 100) <= 75)
                     ApplyDurabilityMod(item);
                 else
                     ApplyArmorSkillMod(item);
@@ -945,7 +966,7 @@ namespace Server.Scripts.Engines.Loot
 
         private static void ApplyDurabilityMod(LootItem item)
         {
-            var level = Utility.Random(1, 50) * item.ItemLevel * 2;
+            var level = RandomMinMax(1, 50) * item.ItemLevel * 2;
             int value = 0;
 
             switch (item.ItemLevel / 3)
@@ -981,6 +1002,38 @@ namespace Server.Scripts.Engines.Loot
 
 
             item.DurabilityLevel = value;
+        }
+
+        private static Item CreateRandomGMWeapon()
+        {
+            var gmWeaponType = RandomList(typeof(LanceOfLothian), typeof(ScalpelOfTrevize), typeof(AnubisMaceOfDeath),
+                typeof(BardicheOfLynx), typeof(DekeronsThunder), typeof(BalthazaarsChillingScimitar),
+                typeof(AxeOfAnias), typeof(TjaldursStaffOfHaste), typeof(KatanaOfKieri), typeof(WarMaceOfErik),
+                typeof(HalberdfOfAlcatraz), typeof(SpearOfRenah), typeof(WeaponOfZulu), typeof(OmerosPickaxe),
+                typeof(XarafaxsAxe));
+            return gmWeaponType.CreateInstance<Item>();
+        }
+
+        private static Item CreateRandomGMArmor()
+        {
+            var gmArmorType = RandomList(typeof(FemaleDrakonChest), typeof(DrakonHelm), typeof(DrakonArms),
+                typeof(DrakonLegs), typeof(DrakonGloves), typeof(DrakonGorget),
+                typeof(DrakonChest), typeof(FemaleRyousChest), typeof(RyousHelm), typeof(RyousArms),
+                typeof(RyousLegs), typeof(RyousGloves), typeof(RyousGorget), typeof(RyousChest),
+                typeof(FemaleDarknessChest), typeof(DarknessHelm), typeof(DarknessArms),
+                typeof(DarknessLegs), typeof(DarknessGloves), typeof(DarknessGorget),
+                typeof(DarknessChest), typeof(FemaleElvenChest), typeof(ElvenHelm),
+                typeof(ElvenArms), typeof(ElvenLegs), typeof(ElvenGloves),
+                typeof(ElvenGorget), typeof(ElvenChest), typeof(DrakonShield),
+                typeof(RyousShield), typeof(DarknessShield), typeof(ElvenShield),
+                typeof(ZephyrCoif), typeof(ZephyrLegs), typeof(ZephyrChest), typeof(InfernalChest),
+                typeof(InfernalArms),
+                typeof(InfernalLegs), typeof(InfernalGloves), typeof(SylvianGorget), typeof(SylvianGloves),
+                typeof(SylvianArms),
+                typeof(SylvianLegs), typeof(SylvianChest), typeof(FemaleSylvianChest), typeof(SageRobe),
+                typeof(MagisterRobe),
+                typeof(MagisterMundiRobe), typeof(CelestialRobe), typeof(PracticusRobe), typeof(ZelatorRobe));
+            return gmArmorType.CreateInstance<Item>();
         }
     }
 }

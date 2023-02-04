@@ -1,40 +1,15 @@
 using System;
 using System.Linq;
 using Server.Items;
+using ZuluContent.Configuration.Types.Crafting;
 
 namespace Server.Engines.Craft
 {
     public class DefBowFletching : CraftSystem
     {
-        public override SkillName MainSkill
-        {
-            get { return SkillName.Fletching; }
-        }
+        public static CraftSystem CraftSystem => new DefBowFletching(ZhConfig.Crafting.Fletching);
 
-        public override int GumpTitleNumber
-        {
-            get { return 1044006; } // <CENTER>BOWCRAFT AND FLETCHING MENU</CENTER>
-        }
-
-        private static CraftSystem m_CraftSystem;
-
-        public static CraftSystem CraftSystem
-        {
-            get
-            {
-                if (m_CraftSystem == null)
-                    m_CraftSystem = new DefBowFletching();
-
-                return m_CraftSystem;
-            }
-        }
-
-        public override double GetChanceAtMin(CraftItem item)
-        {
-            return 0.0;
-        }
-
-        private DefBowFletching() : base(3, 3, 2)
+        private DefBowFletching(CraftSettings settings) : base(settings)
         {
         }
 
@@ -57,11 +32,6 @@ namespace Server.Engines.Craft
                 return 1044263; // The tool must be on your person to use.
 
             return 0;
-        }
-
-        public override void PlayCraftEffect(Mobile from)
-        {
-            from.PlaySound(0x56);
         }
 
         public override int PlayEndingEffect(Mobile from, bool failed, bool lostMaterial, bool toolBroken, int quality,
@@ -92,34 +62,14 @@ namespace Server.Engines.Craft
 
         public override void InitCraftList()
         {
-            int index = -1;
-
-            // Materials
-            AddCraft(typeof(Kindling), 1044457, 1023553, 0.0, 00.0, typeof(Log), 1044041, 1, 1044351);
-
-            index = AddCraft(typeof(Shaft), 1044457, 1027124, 0.0, 40.0, typeof(Log), 1044041, 1, 1044351);
-            SetUseAllRes(index, true);
-
-            // Ammunition
-            index = AddCraft(typeof(Arrow), 1044565, 1023903, 0.0, 40.0, typeof(Shaft), 1044560, 1, 1044561);
-            AddRes(index, typeof(Feather), 1044562, 1, 1044563);
-            SetUseAllRes(index, true);
-
-            index = AddCraft(typeof(Bolt), 1044565, 1027163, 0.0, 40.0, typeof(Shaft), 1044560, 1, 1044561);
-            AddRes(index, typeof(Feather), 1044562, 1, 1044563);
-            SetUseAllRes(index, true);
-
-            // Weapons
-            AddCraft(typeof(Bow), 1044566, 1025042, 30.0, 70.0, typeof(Log), 1044041, 7, 1044351);
-            AddCraft(typeof(Crossbow), 1044566, 1023919, 60.0, 100.0, typeof(Log), 1044041, 7, 1044351);
-            AddCraft(typeof(HeavyCrossbow), 1044566, 1025117, 80.0, 120.0, typeof(Log), 1044041, 10, 1044351);
+            base.InitCraftList();
 
             // Set the overridable material
             SetSubRes(typeof(Log), 1027136);
 
             ZhConfig.Resources.Logs.Entries.ToList()
                 .ForEach(e => AddSubRes(e.ResourceType, e.Name.Length > 0 ? e.Name : "Log", e.CraftSkillRequired,
-                    1044022, e.Name));
+                    1044022, 1072652));
 
             MarkOption = true;
             Repair = true;

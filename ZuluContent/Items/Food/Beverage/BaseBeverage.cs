@@ -316,8 +316,6 @@ namespace Server.Items
                 : base( TimeSpan.FromSeconds( 5.0 ), TimeSpan.FromSeconds( 5.0 ) )
             {
                 m_Drunk = drunk;
-
-                Priority = TimerPriority.OneSecond;
             }
 
             protected override void OnTick()
@@ -564,7 +562,7 @@ namespace Server.Items
 
             writer.Write( (Mobile)m_Poisoner );
 
-            Poison.Serialize( m_Poison, writer );
+            writer.Write(m_Poison);
             writer.Write( (int)m_Content );
             writer.Write( (int)m_Quantity );
         }
@@ -594,7 +592,7 @@ namespace Server.Items
                 }
                 case 0:
                 {
-                    m_Poison = Poison.Deserialize( reader );
+                    m_Poison = reader.ReadPoison();
                     m_Content = (BeverageType)reader.ReadInt();
                     m_Quantity = reader.ReadInt();
                     break;
