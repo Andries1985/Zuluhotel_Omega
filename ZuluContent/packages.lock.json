@@ -171,6 +171,22 @@
         "resolved": "1.9.0",
         "contentHash": "eZZBCABzVOek+id9Xy04HhmgykF0wZg9wpByzrWN7q8qEI0Qen9b7tfd7w8VA3dOeesumMG7C5ZPy0jk7PSRHw=="
       },
+      "Serilog.Sinks.Async": {
+        "type": "Transitive",
+        "resolved": "1.5.0",
+        "contentHash": "csHYIqAwI4Gy9oAhXYRwxGrQEAtBg3Ep7WaCzsnA1cZuBZjVAU0n7hWaJhItjO7hbLHh/9gRVxALCUB4Dv+gZw==",
+        "dependencies": {
+          "Serilog": "2.9.0"
+        }
+      },
+      "Serilog.Sinks.Console": {
+        "type": "Transitive",
+        "resolved": "4.0.1",
+        "contentHash": "apLOvSJQLlIbKlbx+Y2UDHSP05kJsV7mou+fvJoRGs/iR+jC22r8cuFVMjjfVxz/AD4B2UCltFhE1naRLXwKNw==",
+        "dependencies": {
+          "Serilog": "2.10.0"
+        }
+      },
       "System.Collections": {
         "type": "Transitive",
         "resolved": "4.3.0",
@@ -445,8 +461,14 @@
       "ModernUO": {
         "type": "Project",
         "dependencies": {
-          "Microsoft.Toolkit.HighPerformance": "[7.0.0-preview5, )",
-          "Zlib.Bindings": "[1.4.0, )"
+          "Microsoft.Toolkit.HighPerformance": "[7.1.2, )",
+          "ModernUO.Serialization.Annotations": "[2.0.2, )",
+          "ModernUO.Serialization.Generator": "[2.0.4, )",
+          "PollGroup": "[1.2.1, )",
+          "Serilog": "[2.11.0, )",
+          "Serilog.Sinks.Async": "[1.5.0, )",
+          "Serilog.Sinks.Console": "[4.0.1, )",
+          "Zlib.Bindings": "[1.9.2, )"
         }
       }
     }
