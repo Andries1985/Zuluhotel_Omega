@@ -1,12 +1,15 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
-using System.IO;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Runtime.InteropServices;
+using System.Text;
+using System.Text.Json;
 using System.Text.RegularExpressions;
 using Server;
+using ZuluContent.Zulu.Items;
+using System.Buffers.Text;
 
 namespace Scripts.Zulu.Utilities
 {
@@ -45,7 +48,7 @@ namespace Scripts.Zulu.Utilities
         public static Type[] GetInheritedClasses(this Type parent)
         {
             return Assembly.GetAssembly(parent)?.GetTypes()
-                .Where(target => target.GetInterfaces().Contains(parent) && !target.IsAbstract)
+                .Where(target => target.IsClass && (target.GetInterfaces().Contains(parent) || target.IsSubclassOf(parent)) && !target.IsAbstract)
                 .ToArray();
         }
 
@@ -113,12 +116,10 @@ namespace Scripts.Zulu.Utilities
                 if (sourceProperty.PropertyType != targetProperty.PropertyType &&
                     !targetProperty.PropertyType.IsAssignableFrom(sourceProperty.PropertyType))
                 {
-                    bool hasImplicitMethod = (
-                        from method in sourceProperty.PropertyType.GetMethods(BindingFlags.Static | BindingFlags.Public)
-                        where method.Name == "op_Implicit" && method.ReturnType == targetProperty.PropertyType ||
-                              method.Name == "op_Explicit" && method.ReturnType == targetProperty.PropertyType
-                        select method
-                    ).Any();
+                    var hasImplicitMethod = sourceProperty.PropertyType
+                        .GetMethods(BindingFlags.Static | BindingFlags.Public)
+                        .Any(method => method.Name == "op_Implicit" && method.ReturnType == targetProperty.PropertyType ||
+                                       method.Name == "op_Explicit" && method.ReturnType == targetProperty.PropertyType);
 
                     if (!hasImplicitMethod)
                     {
@@ -188,6 +189,45 @@ namespace Scripts.Zulu.Utilities
             var lambda = Expression.Lambda<Action<TSource, TTarget>>(body, source, target);
 
             return lambda.Compile();
+        }
+        
+        public static Func<T> ItemCreatorLambda<T>(Type type) where T : Item
+        {
+            var constructor = type.GetConstructor(Array.Empty<Type>());
+
+            if (constructor == null)
+            {
+                throw new ArgumentOutOfRangeException(nameof(type), "No parameterless constructor found");
+            }
+
+            var expr = Expression.Lambda<Func<T>>(Expression.New(constructor), null).Compile();
+
+            return expr;
+        }
+        
+        public static unsafe string SerializeAsBase64Json(object data)
+        {
+            byte[] outputChars = null;
+
+            try
+            {
+                var jsonBytes = JsonSerializer.SerializeToUtf8Bytes(data);
+
+                outputChars = ArrayPool<byte>.Shared.Rent(Base64.GetMaxEncodedToUtf8Length(jsonBytes.Length));
+
+                Base64.EncodeToUtf8(jsonBytes, outputChars, out var consumed, out var bytesWritten);
+
+                fixed (byte* bp = outputChars)
+                {
+                    return Encoding.UTF8.GetString(bp, bytesWritten);
+                }
+            }
+            finally
+            {
+                if (outputChars != null)
+                    ArrayPool<byte>.Shared.Return(outputChars);
+            }
+
         }
     }
 }

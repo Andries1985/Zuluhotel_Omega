@@ -133,7 +133,7 @@ namespace Scripts.Zulu.Engines.Classes
             return true;
         }
 
-        public static void AwardSkillPoints(Mobile from, SkillName skillName, int points)
+        public static void AwardSkillPoints(this Mobile from, SkillName skillName, int points)
         {
             Skill skill = from.Skills[skillName];
 
@@ -269,7 +269,7 @@ namespace Scripts.Zulu.Engines.Classes
             if (baseValue >= 2800)
                 return 0x7fffffff;
 
-            return Math.Pow(2.0, (int) baseValue / 100) * 10.24;
+            return Math.Pow(2.0, (int) (baseValue / 100)) * 10.24;
         }
     }
 }

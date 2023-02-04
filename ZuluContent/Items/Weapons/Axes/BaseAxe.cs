@@ -12,35 +12,16 @@ namespace Server.Items
 
     public abstract class BaseAxe : BaseMeleeWeapon
     {
-        public override int DefaultHitSound
-        {
-            get { return 0x232; }
-        }
+        public override int DefaultHitSound => 0x23B;
+        public override int DefaultMissSound => 0x239;
 
-        public override int DefaultMissSound
-        {
-            get { return 0x23A; }
-        }
+        public override SkillName DefaultSkill => SkillName.Swords;
 
-        public override SkillName DefaultSkill
-        {
-            get { return SkillName.Swords; }
-        }
+        public override WeaponType DefaultWeaponType => WeaponType.Axe;
 
-        public override WeaponType DefaultWeaponType
-        {
-            get { return WeaponType.Axe; }
-        }
+        public override WeaponAnimation DefaultAnimation => WeaponAnimation.Slash2H;
 
-        public override WeaponAnimation DefaultAnimation
-        {
-            get { return WeaponAnimation.Slash2H; }
-        }
-
-        public virtual HarvestSystem HarvestSystem
-        {
-            get { return Lumberjacking.System; }
-        }
+        public virtual HarvestSystem HarvestSystem => Lumberjacking.System;
 
         private int m_UsesRemaining;
         private bool m_ShowUsesRemaining;
@@ -106,13 +87,14 @@ namespace Server.Items
                 from.LocalOverheadMessage(MessageType.Regular, 0x3E9, 1019045); // I can't reach that
                 return;
             }
-            else if (!IsAccessibleTo(from))
+            
+            if (!IsAccessibleTo(from))
             {
                 PublicOverheadMessage(MessageType.Regular, 0x3E9, 1061637); // You are not allowed to access this.
                 return;
             }
 
-            if (!(HarvestSystem is Mining))
+            if (HarvestSystem is not Mining)
                 from.SendLocalizedMessage(1010018); // What do you want to use this item on?
 
             HarvestSystem.BeginHarvesting(from, this);
@@ -153,27 +135,6 @@ namespace Server.Items
                         m_UsesRemaining = 150;
 
                     break;
-                }
-            }
-        }
-
-        public override void OnHit(Mobile attacker, Mobile defender, double damageBonus)
-        {
-            base.OnHit(attacker, defender, damageBonus);
-
-            if ((attacker.Player || attacker.Body.IsHuman) && Layer == Layer.TwoHanded &&
-                attacker.Skills[SkillName.Anatomy].Value / 400.0 >= Utility.RandomDouble())
-            {
-                StatMod mod = defender.GetStatMod("Concussion");
-
-                if (mod == null)
-                {
-                    defender.SendMessage("You receive a concussion blow!");
-                    defender.AddStatMod(new StatMod(StatType.Int, "Concussion", -(defender.RawInt / 2),
-                        TimeSpan.FromSeconds(30.0)));
-
-                    attacker.SendMessage("You deliver a concussion blow!");
-                    attacker.PlaySound(0x308);
                 }
             }
         }

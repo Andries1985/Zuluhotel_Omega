@@ -25,11 +25,11 @@ namespace Server.Network
             IncomingPackets.Register(0x56, 11, true, OnMapCommand);
         }
 
-        private static void OnMapCommand(NetState state, CircularBufferReader reader, ref int packetLength)
+        private static void OnMapCommand(NetState state, CircularBufferReader reader, int packetLength)
         {
             var from = state.Mobile;
 
-            if (!(World.FindItem(reader.ReadUInt32()) is MapItem map))
+            if (!(World.FindItem((Serial) reader.ReadUInt32()) is MapItem map))
             {
                 return;
             }

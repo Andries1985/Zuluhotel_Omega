@@ -5,27 +5,29 @@ namespace Server.Items
 {
     public abstract class BaseRanged : BaseMeleeWeapon
     {
-        public virtual int EffectId { get; set;  }
         public abstract Type AmmoType { get; }
         public abstract Item Ammo { get; }
 
-        public override int DefaultHitSound { get; } = 0x234;
+        public override int DefaultHitSound => 0x234;
 
-        public override int DefaultMissSound { get; } = 0x238;
+        public override int DefaultMissSound => 0x238;
 
-        public override SkillName DefaultSkill { get; } = SkillName.Archery;
+        public override SkillName DefaultSkill => SkillName.Archery;
 
-        public override WeaponType DefaultWeaponType { get; } = WeaponType.Ranged;
+        public override WeaponType DefaultWeaponType => WeaponType.Ranged;
 
-        public override WeaponAnimation DefaultAnimation { get; } = WeaponAnimation.ShootXBow;
+        public override WeaponAnimation DefaultAnimation => WeaponAnimation.ShootXBow;
 
-        public override SkillName AccuracySkill { get; } = SkillName.Archery;
+        public override SkillName AccuracySkill => SkillName.Archery;
 
         [CommandProperty(AccessLevel.GameMaster)]
         public bool Balanced { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
         public int Velocity { get; set; }
+        
+        [CommandProperty(AccessLevel.GameMaster)]
+        public virtual int EffectId { get; set; }
 
         public BaseRanged(int itemId) : base(itemId)
         {
@@ -35,7 +37,7 @@ namespace Server.Items
         {
         }
 
-        public override TimeSpan OnSwing(Mobile attacker, Mobile defender)
+        public override TimeSpan OnSwing(Mobile attacker, Mobile defender, double bonus)
         {
             if (Core.TickCount > attacker.LastMoveTime + 1000)
             {
@@ -65,18 +67,18 @@ namespace Server.Items
             }
         }
 
-        public override void OnHit(Mobile attacker, Mobile defender, double damageBonus)
+        public override void OnHit(Mobile attacker, Mobile defender)
         {
             if (attacker.Player && !defender.Player && (defender.Body.IsAnimal || defender.Body.IsMonster) &&
                 0.4 >= Utility.RandomDouble())
                 defender.AddToBackpack(Ammo);
 
-            base.OnHit(attacker, defender, damageBonus);
+            base.OnHit(attacker, defender);
         }
 
         public override void OnMiss(Mobile attacker, Mobile defender)
         {
-            if (attacker.Player && 0.4 >= Utility.RandomDouble())
+            if (attacker.Player && 0.8 >= Utility.RandomDouble())
             {
                 Ammo.MoveToWorld(
                     new Point3D(defender.X + Utility.RandomMinMax(-1, 1), defender.Y + Utility.RandomMinMax(-1, 1),
@@ -96,7 +98,8 @@ namespace Server.Items
                     return false;
             }
 
-            attacker.MovingEffect(defender, EffectId, 18, 1, false, false);
+            // TODO: Revert duration back to 1 once CUO has found a fix for animating
+            attacker.MovingEffect(defender, EffectId, 18, 0, false, false);
 
             return true;
         }

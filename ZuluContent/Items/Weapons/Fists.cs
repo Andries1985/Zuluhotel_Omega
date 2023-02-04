@@ -8,54 +8,27 @@ namespace Server.Items
         {
             Mobile.DefaultWeapon = new Fists();
 
-            EventSink.DisarmRequest += EventSink_DisarmRequest;
-            EventSink.StunRequest += EventSink_StunRequest;
+            // EventSink.DisarmRequest += EventSink_DisarmRequest;
+            // EventSink.StunRequest += EventSink_StunRequest;
         }
 
-        public override int DefaultStrengthReq
-        {
-            get { return 0; }
-        }
+        public override int DefaultStrengthReq { get; } = 0;
 
-        public override int DefaultMinDamage
-        {
-            get { return 1; }
-        }
+        public override int DefaultMinDamage { get; } = 1;
 
-        public override int DefaultMaxDamage
-        {
-            get { return 8; }
-        }
+        public override int DefaultMaxDamage { get; } = 8;
 
-        public override int DefaultSpeed
-        {
-            get { return 30; }
-        }
+        public override int DefaultSpeed { get; } = 30;
 
-        public override int DefaultHitSound
-        {
-            get { return -1; }
-        }
+        public override int DefaultHitSound { get; } = 0x13B;
 
-        public override int DefaultMissSound
-        {
-            get { return -1; }
-        }
+        public override int DefaultMissSound { get; } = 0x233;
 
-        public override SkillName DefaultSkill
-        {
-            get { return SkillName.Wrestling; }
-        }
+        public override SkillName DefaultSkill { get; } = SkillName.Wrestling;
 
-        public override WeaponType DefaultWeaponType
-        {
-            get { return WeaponType.Fists; }
-        }
+        public override WeaponType DefaultWeaponType { get; } = WeaponType.Fists;
 
-        public override WeaponAnimation DefaultAnimation
-        {
-            get { return WeaponAnimation.Wrestle; }
-        }
+        public override WeaponAnimation DefaultAnimation { get; } = WeaponAnimation.Wrestle;
 
         public Fists() : base(0)
         {
@@ -68,7 +41,7 @@ namespace Server.Items
         {
         }
 
-        public override double GetDefendSkillValue(Mobile attacker, Mobile defender)
+        /*public override double GetDefendSkillValue(Mobile attacker, Mobile defender)
         {
             double wresValue = defender.Skills[SkillName.Wrestling].Value;
             double anatValue = defender.Skills[SkillName.Anatomy].Value;
@@ -82,9 +55,9 @@ namespace Server.Items
                 return wresValue;
             else
                 return incrValue;
-        }
+        }*/
 
-        private void CheckPreAOSMoves(Mobile attacker, Mobile defender)
+        /*private void CheckPreAOSMoves(Mobile attacker, Mobile defender)
         {
             if (attacker.StunReady)
             {
@@ -187,14 +160,14 @@ namespace Server.Items
                     }
                 }
             }
-        }
+        }*/
 
-        public override TimeSpan OnSwing(Mobile attacker, Mobile defender)
+        /*public override TimeSpan OnSwing(Mobile attacker, Mobile defender)
         {
             CheckPreAOSMoves(attacker, defender);
 
             return base.OnSwing(attacker, defender);
-        }
+        }*/
 
         /*public override void OnMiss( Mobile attacker, Mobile defender )
         {
@@ -219,7 +192,7 @@ namespace Server.Items
 
         /* Wrestling moves */
 
-        private static bool CheckMove(Mobile m, SkillName other)
+        /*private static bool CheckMove(Mobile m, SkillName other)
         {
             double wresValue = m.Skills[SkillName.Wrestling].Value;
             double scndValue = m.Skills[other].Value;
@@ -227,12 +200,12 @@ namespace Server.Items
             /* 40% chance at 80, 80
              * 50% chance at 100, 100
              * 60% chance at 120, 120
-             */
+             #1#
 
             double chance = (wresValue + scndValue) / 400.0;
 
             return chance >= Utility.RandomDouble();
-        }
+        }*/
 
         private static bool HasFreeHands(Mobile m)
         {
@@ -297,8 +270,6 @@ namespace Server.Items
             public MoveDelayTimer(Mobile m) : base(TimeSpan.FromSeconds(10.0))
             {
                 m_Mobile = m;
-
-                Priority = TimerPriority.TwoFiftyMS;
 
                 m_Mobile.BeginAction(typeof(Fists));
             }

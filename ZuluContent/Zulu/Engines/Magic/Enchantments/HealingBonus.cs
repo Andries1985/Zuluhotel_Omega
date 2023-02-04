@@ -15,11 +15,13 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
         public override string AffixName => EnchantmentInfo.GetName(Value, Cursed);
         [Key(1)] 
         public int Value { get; set; } = 0;
+        
+        [CallPriority(1)]
+        public override bool GetShouldDye() => Value > 0;
 
         public override void OnHeal(Mobile healer, Mobile patient, object source, ref double healAmount)
         {
-            var healingBonusLevel = GetProtectionLevelForResist(Value);
-            var healDelta = healAmount * (int) healingBonusLevel * 0.1;
+            var healDelta = healAmount * Value * 0.1;
             if (Cursed > CurseType.None)
                 healAmount -= healDelta;
             else

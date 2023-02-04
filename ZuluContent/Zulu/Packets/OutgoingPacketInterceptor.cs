@@ -1,5 +1,6 @@
 using System;
 using System.Buffers;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using Server;
@@ -11,37 +12,36 @@ namespace Scripts.Zulu.Packets
 {
     public static class OutgoingPacketInterceptor
     {
-        private static readonly bool RewriteOutgoingMessagesToAscii;
-        
-        static OutgoingPacketInterceptor()
-        {
-            RewriteOutgoingMessagesToAscii = 
-                ServerConfiguration.GetOrUpdateSetting("outgoingPacketInterceptor.rewriteMessagesToAscii", true);
-        }
-        
+        private static bool RewriteMessagesToAscii => ZhConfig.Messaging.RewriteMessagesToAscii;
+
         public static void Intercept(ReadOnlySpan<byte> input, CircularBuffer<byte> output, out int length)
         {
-            if (RewriteOutgoingMessagesToAscii)
+            switch (input[0])
             {
-                switch (input[0])
-                {
-                    case 0x1C:
-                        break;
-                    case 0xBF:
-                        if (input[4] == 0x10)
-                        {
-                            RewriteEquipmentInfo(input, output, out length);
-                            return;
-                        }
-                        break;
-                    case 0xAE:
+                case 0x1C:
+                    break;
+                case 0xBF:
+                    if (RewriteMessagesToAscii && input[4] == 0x10)
+                    {
+                        RewriteEquipmentInfo(input, output, out length);
+                        return;
+                    }
+                    break;
+                case 0xAE:
+                    if (RewriteMessagesToAscii)
+                    {
                         RewriteUnicodeMessage(input, output, out length);
                         return;
-                    case 0xC1:
-                    case 0xCC:
+                    }
+                    break;
+                case 0xC1:
+                case 0xCC:
+                    if (RewriteMessagesToAscii)
+                    {
                         RewriteMessageLocalized(input, output, out length);
                         return;
-                }
+                    }
+                    break;
             }
 
             length = NetworkCompression.Compress(input, output);
@@ -50,18 +50,46 @@ namespace Scripts.Zulu.Packets
         private static void RewriteEquipmentInfo(ReadOnlySpan<byte> input, CircularBuffer<byte> output, out int length)
         {
             var reader = new SpanReader(input);
-            reader.Seek(3, SeekOrigin.Current);
+            reader.Seek(3, SeekOrigin.Begin);
             
             var sub = reader.ReadInt16();
-            var serial = reader.ReadUInt32();
+            var serial = (Serial) reader.ReadUInt32();
             var label = reader.ReadInt32();
 
             var item = World.FindItem(serial);
 
-            if ( !ZhConfig.Messaging.Cliloc.TryGetValue(label, out var text))
+            if (!ZhConfig.Messaging.Cliloc.TryGetValue(label, out var text))
             {
                 length = NetworkCompression.Compress(input, output);
                 return;
+            }
+
+            text = ClilocList.TextInfo.ToTitleCase(text);
+            
+            int attr;
+            while ((attr = reader.ReadInt32()) != -1)
+            {
+                switch (attr)
+                {
+                    case -3: // crafted by
+                    {
+                        var nameLen = reader.ReadUInt16();
+                        var name = reader.ReadAsciiSafe(nameLen);
+                        text += $"\nCrafted by {name}";
+                        break;
+                    }
+                    case -4: // unidentified
+                        break;
+                    default:
+                    {
+                        var charges = reader.ReadInt16();
+                        if (ZhConfig.Messaging.Cliloc.TryGetValue(attr, out var attrLabel))
+                        {
+                            text += $"\n{attrLabel}: {charges}";
+                        }
+                        break;
+                    }
+                }
             }
 
             var res = item switch
@@ -73,7 +101,7 @@ namespace Scripts.Zulu.Packets
                 _ => CraftResource.None
             };
 
-            if (res != CraftResource.None)
+            if (res > CraftResource.Iron)
                 text = $"{CraftResources.GetName(res)} {text}";
             
             var buffer = stackalloc byte[GetMaxMessageLength(text)].InitializePacket();
@@ -89,8 +117,8 @@ namespace Scripts.Zulu.Packets
                 "",
                 text
             );
-
-            buffer = buffer.SliceToLength(pLength);
+            
+            buffer = buffer[..pLength];
             length = NetworkCompression.Compress(buffer, output);
         }
         
@@ -99,7 +127,7 @@ namespace Scripts.Zulu.Packets
             var reader = new SpanReader(input);
             reader.Seek(3, SeekOrigin.Current);
 
-            var serial = reader.ReadUInt32();
+            var serial = (Serial) reader.ReadUInt32();
             var graphic = reader.ReadInt16();
             var type = (MessageType) reader.ReadByte();
             var hue = reader.ReadInt16();
@@ -122,7 +150,7 @@ namespace Scripts.Zulu.Packets
                 text
             );
 
-            buffer = buffer.SliceToLength(pLength);
+            buffer = buffer[..pLength];
             length = NetworkCompression.Compress(buffer, output);
         }
         
@@ -178,7 +206,7 @@ namespace Scripts.Zulu.Packets
                 text
             );
 
-            buffer = buffer.SliceToLength(pLength);
+            buffer = buffer[..pLength];
 
             length = NetworkCompression.Compress(buffer, output);
         }

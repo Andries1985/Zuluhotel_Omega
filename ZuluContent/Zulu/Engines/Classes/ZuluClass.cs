@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Scripts.Zulu.Utilities;
 using Server;
 using Server.Engines.Craft;
 using Server.Engines.Magic;
+using Server.Gumps;
 using Server.Items;
 using Server.Mobiles;
 using Server.Spells;
@@ -11,6 +13,7 @@ using Server.Spells.Second;
 using Server.Targeting;
 using ZuluContent.Zulu.Engines.Magic.Enchantments;
 using ZuluContent.Zulu.Engines.Magic.Hooks;
+using ZuluContent.Zulu.Items;
 
 namespace Scripts.Zulu.Engines.Classes
 {
@@ -22,11 +25,11 @@ namespace Scripts.Zulu.Engines.Classes
         private const double SkillBase = 480;
         private const double PercentPerLevel = 0.08;
         private const double PercentBase = 0.52;
-        private const double PerLevel = 0.25; //25% per level
+        private const double PerLevel = 0.15; //15% per level
         private const double ClasseBonus = 1.5;
-        private const int MaxLevel = 6;
+        public const int MaxLevel = 6;
 
-        private static readonly double[] MinSkills =
+        public static readonly double[] MinSkills =
             Enumerable
                 .Range(0, MaxLevel + 1) // Technically lvl 0 (none) is a level
                 .Select(i => SkillBase + ClassPointsPerLevel * i)
@@ -34,6 +37,7 @@ namespace Scripts.Zulu.Engines.Classes
 
         private readonly IZuluClassed m_Parent;
 
+        #region ClassSkills
         public static readonly IReadOnlyDictionary<ZuluClassType, SkillName[]> ClassSkills =
             new Dictionary<ZuluClassType, SkillName[]>
             {
@@ -104,6 +108,7 @@ namespace Scripts.Zulu.Engines.Classes
                     SkillName.Begging,
                 }
             };
+        #endregion
 
         [CommandProperty(AccessLevel.Counselor)]
         public int Level { get; set; } = 0;
@@ -119,9 +124,11 @@ namespace Scripts.Zulu.Engines.Classes
         }
 
         [CommandProperty(AccessLevel.Counselor)]
-        public double Bonus => Type == ZuluClassType.PowerPlayer || Type == ZuluClassType.None
+        public double Bonus => m_Parent is BaseCreature || Type is ZuluClassType.PowerPlayer or ZuluClassType.None
             ? 1.0
             : 1.0 + Level * PerLevel;
+
+        public static double GetBonusByLevel(int level) => 1.0 + level * PerLevel;
 
         public static double GetBonusFor(Mobile m, ZuluClassType name) =>
             m is IZuluClassed classed ? classed.ZuluClass.GetBonusFor(name) : 1.0;
@@ -132,6 +139,7 @@ namespace Scripts.Zulu.Engines.Classes
         {
             CommandSystem.Register("Classe", AccessLevel.Player, ClassOnCommand);
             CommandSystem.Register("ShowClasse", AccessLevel.Player, ClassOnCommand);
+            CommandSystem.Register("TargetClasse", AccessLevel.Player, TargetClassOnCommand);
             CommandSystem.Register("SetClasse", AccessLevel.GameMaster, SetClass);
         }
 
@@ -148,35 +156,47 @@ namespace Scripts.Zulu.Engines.Classes
                 return;
             }
 
-            pm.ZuluClass.ComputeClass();
+            pm.CloseGump<ShowClasseGump>();
+            pm.SendGump(new ShowClasseGump(pm));
+        }
 
-            var message = pm.ZuluClass.Type == ZuluClassType.None
-                ? "You aren't a member of any particular class."
-                : $"You are a qualified level {pm.ZuluClass.Level} {pm.ZuluClass.Type.FriendlyName()}.";
+        public static void TargetClassOnCommand(CommandEventArgs e)
+        {
+            if (!(e.Mobile is PlayerMobile pm))
+                return;
 
-            pm.SendMessage(message);
+            pm.CloseGump<TargetClasseGump>();
+            pm.SendGump(new TargetClasseGump());
         }
 
         [Usage("SetClasse <class> <level>")]
         [Description("Sets you to the desired class and level, sets all other skills to 0.")]
         public static void SetClass(CommandEventArgs e)
         {
-            if (!(e.Mobile is PlayerMobile pm))
+            if (e.Mobile is not PlayerMobile pm)
                 return;
 
             if (e.Length == 2 && Enum.TryParse(e.GetString(0), out ZuluClassType classType))
             {
                 var level = e.GetInt32(1);
+                SetClass(pm, classType, level);
+            }
+        }
 
-                if (level > MaxLevel || level < 0)
-                    level = 0;
+        public static void SetClass(Mobile m, ZuluClassType classType, int level)
+        {
+            if (m is not PlayerMobile pm)
+                return;
 
-                foreach (var skill in pm.Skills)
-                {
-                    skill.Base = ClassSkills[classType].Contains(skill.SkillName)
-                        ? MinSkills[level] / ClassSkills[classType].Length
-                        : 0.0;
-                }
+            if (level is > MaxLevel or < 0)
+                level = 0;
+
+            foreach (var skill in pm.Skills)
+            {
+                var skillLevel = ClassSkills[classType].Contains(skill.SkillName)
+                    ? MinSkills[level] / ClassSkills[classType].Length
+                    : 0.0;
+                skill.Base = Math.Min(skillLevel, ZhConfig.Skills.StatCap / 10.0);
             }
         }
 
@@ -206,23 +226,23 @@ namespace Scripts.Zulu.Engines.Classes
                     Type = ZuluClassType.None;
                     return;
                 case >= 3920.0:
-                {
-                    Type = ZuluClassType.PowerPlayer;
-                    Level = 1;
-
-                    if (total >= 5145)
                     {
-                        Level = 2;
+                        Type = ZuluClassType.PowerPlayer;
+                        Level = 1;
 
-                        if (total >= 6370)
+                        if (total >= 5145)
                         {
-                            Level = 3;
-                        }
-                    }
+                            Level = 2;
 
-                    //we're a pp so:
-                    return;
-                }
+                            if (total >= 6370)
+                            {
+                                Level = 3;
+                            }
+                        }
+
+                        //we're a pp so:
+                        return;
+                    }
             }
 
             foreach (var (classType, classSkills) in ClassSkills)
@@ -248,6 +268,11 @@ namespace Scripts.Zulu.Engines.Classes
             }
         }
 
+        public static double GetClassLevelPercent(int level)
+        {
+            return PercentBase + PercentPerLevel * level;
+        }
+
         //idx:    0    1     2     3     4     5      6
         //Min: [ 480, 600,  720,  840,  960,  1080, 1200 ]
         //Max: [ 923, 1000, 1058, 1105, 1142, 1173, 1200 ]
@@ -255,7 +280,7 @@ namespace Scripts.Zulu.Engines.Classes
         {
             for (int level = MinSkills.Length - 1; level >= 0; level--)
             {
-                var levelReq = PercentBase + PercentPerLevel * level;
+                var levelReq = GetClassLevelPercent(level);
                 var classPct = classTotal / allSkillsTotal;
 
                 if (classTotal >= MinSkills[level] && classPct >= levelReq)
@@ -264,7 +289,7 @@ namespace Scripts.Zulu.Engines.Classes
 
             return 0;
         }
-        
+
         public bool IsSkillInClass(SkillName sn)
         {
             return ClassSkills.FirstOrDefault(kv => kv.Value.Contains(sn)).Key == Type;
@@ -299,13 +324,14 @@ namespace Scripts.Zulu.Engines.Classes
             {
                 var armour = new[]
                 {
-                    mobile.ShieldArmor as BaseArmor,
-                    mobile.NeckArmor as BaseArmor,
-                    mobile.HandArmor as BaseArmor,
-                    mobile.HeadArmor as BaseArmor,
-                    mobile.ArmsArmor as BaseArmor,
-                    mobile.LegsArmor as BaseArmor,
-                    mobile.ChestArmor as BaseArmor,
+                    mobile.ShieldArmor as BaseEquippableItem,
+                    mobile.NeckArmor as BaseEquippableItem,
+                    mobile.HandArmor as BaseEquippableItem,
+                    mobile.HeadArmor as BaseEquippableItem,
+                    mobile.ArmsArmor as BaseEquippableItem,
+                    mobile.LegsArmor as BaseEquippableItem,
+                    mobile.ChestArmor as BaseEquippableItem,
+                    mobile.FindItemOnLayer(Layer.OuterTorso) as BaseEquippableItem
                 };
 
                 return armour.Sum(a => a?.Enchantments.Get((MagicEfficiencyPenalty e) => e.Value) ?? 0);
@@ -329,7 +355,7 @@ namespace Scripts.Zulu.Engines.Classes
         {
             DebugLog(attacker, $"OnSpellDamage::before {damage}");
 
-            if (attacker is IZuluClassed {ZuluClass: { } attackerClass})
+            if (attacker is IZuluClassed { ZuluClass: { } attackerClass })
             {
                 var value = attackerClass.Type switch
                 {
@@ -341,8 +367,8 @@ namespace Scripts.Zulu.Engines.Classes
                 DebugLog(attacker, $"(Attacker) Damage: {spell} from {damage} to {(int)value} ({attackerClass})");
                 damage = (int)value;
             }
-            
-            if (defender is IZuluClassed {ZuluClass: { } defenderClass})
+
+            if (defender is IZuluClassed { ZuluClass: { } defenderClass })
             {
                 var value = defenderClass.Type switch
                 {
@@ -372,59 +398,60 @@ namespace Scripts.Zulu.Engines.Classes
 
         public void OnHeal(Mobile healer, Mobile patient, object source, ref double healAmount)
         {
-            if (healer is IZuluClassed {ZuluClass: { } cls})
+            if (healer is IZuluClassed cls)
             {
-                var bonus = cls.Type switch
+                var bonus = cls.ZuluClass.Type switch
                 {
-                    ZuluClassType.Warrior when source is Bandage => cls.Bonus,
-                    ZuluClassType.Mage when source is Spell => cls.Bonus,
+                    ZuluClassType.Warrior when source is BandageContext => cls.ZuluClass.Bonus,
+                    ZuluClassType.Ranger when source is BandageContext => cls.ZuluClass.Bonus,
+                    ZuluClassType.Mage when source is Spell => cls.ZuluClass.Bonus,
                     _ => 1.0
                 };
 
                 healAmount *= bonus;
 
-                if(bonus > 1.0)
+                if (bonus > 1.0)
                     DebugLog(healer, $"Increased healing from {source} " +
-                                     $"by {cls.Bonus} " +
-                                     $"(level {cls.Level} {cls.Type})");
+                                     $"by {cls.ZuluClass.Bonus} " +
+                                     $"(level {cls.ZuluClass.Level} {cls.ZuluClass.Type})");
             }
         }
 
         public void OnAnimalTaming(Mobile tamer, BaseCreature creature, ref int chance)
         {
-            if (tamer is IZuluClassed {ZuluClass: {Type: ZuluClassType.Ranger}})
+            if (tamer is IZuluClassed { ZuluClass: { Type: ZuluClassType.Ranger } })
             {
-                chance = (int) (chance / ClasseBonus);
+                chance = (int)(chance / ClasseBonus);
             }
         }
 
         public void OnTracking(Mobile tracker, ref int range)
         {
-            if (tracker is IZuluClassed {ZuluClass: {Type: ZuluClassType.Ranger} cls})
+            if (tracker is IZuluClassed { ZuluClass: { Type: ZuluClassType.Ranger } cls })
             {
-                range = (int) (range * cls.Bonus);
+                range = (int)(range * cls.Bonus);
             }
         }
 
         public void OnQualityBonus(Mobile crafter, ref int multiplier)
         {
-            if (crafter is IZuluClassed {ZuluClass: {Type: ZuluClassType.Crafter} cls})
+            if (crafter is IZuluClassed { ZuluClass: { Type: ZuluClassType.Crafter } cls })
             {
-                multiplier = (int) (multiplier * cls.Bonus);
+                multiplier = (int)(multiplier * cls.Bonus);
             }
         }
 
         public void OnArmsLoreBonus(Mobile crafter, ref double armsLoreValue)
         {
-            if (crafter is IZuluClassed {ZuluClass: {Type: ZuluClassType.Crafter} cls})
+            if (crafter is IZuluClassed { ZuluClass: { Type: ZuluClassType.Crafter } cls })
             {
-                armsLoreValue = (int) (armsLoreValue * cls.Bonus);
+                armsLoreValue = (int)(armsLoreValue * cls.Bonus);
             }
         }
 
         public void OnExceptionalChance(Mobile crafter, ref double exceptionalChance, ref int exceptionalDifficulty)
         {
-            if (crafter is IZuluClassed {ZuluClass: {Type: ZuluClassType.Crafter} cls})
+            if (crafter is IZuluClassed { ZuluClass: { Type: ZuluClassType.Crafter } cls })
             {
                 exceptionalChance *= cls.Bonus;
                 exceptionalDifficulty += 20;
@@ -437,60 +464,60 @@ namespace Scripts.Zulu.Engines.Classes
 
         public void OnMeditation(Mobile mobile, ref int regen, ref double tickIntervalSeconds)
         {
-            if (mobile is IZuluClassed {ZuluClass: {Type: ZuluClassType.Mage}})
+            if (mobile is IZuluClassed { ZuluClass: { Type: ZuluClassType.Mage } })
             {
-                regen = (int) (regen * ClasseBonus);
+                regen = (int)(regen * ClasseBonus);
                 tickIntervalSeconds /= ClasseBonus;
             }
         }
 
         public void OnModifyWithMagicEfficiency(Mobile mobile, ref double value)
         {
-            if (mobile is IZuluClassed {ZuluClass: { } cls})
+            if (mobile is IZuluClassed { ZuluClass: { } cls })
             {
                 var bonus = cls.Type switch
                 {
-                    ZuluClassType.Warrior => (int) (value / ClasseBonus),
-                    ZuluClassType.Mage => (int) (value * ClasseBonus),
-                    _ => (int) value
+                    ZuluClassType.Warrior => (int)(value / ClasseBonus),
+                    ZuluClassType.Mage => (int)(value * ClasseBonus),
+                    _ => (int)value
                 };
 
                 var penalty = GetMagicEfficiencyPenalty();
 
-                value = (int) (bonus * (100 - penalty) / 100);
+                value = (int)(bonus * (100 - penalty) / 100);
             }
         }
 
         public void OnHarvestAmount(Mobile mobile, ref int amount)
         {
-            if (mobile is IZuluClassed {ZuluClass: {Type: ZuluClassType.Crafter}})
+            if (mobile is IZuluClassed { ZuluClass: { Type: ZuluClassType.Crafter } })
             {
-                amount = (int) (amount * ClasseBonus);
+                amount = (int)(amount * ClasseBonus);
             }
         }
 
         public void OnHarvestBonus(Mobile mobile, ref int amount)
         {
-            if (mobile is IZuluClassed {ZuluClass: {Type: ZuluClassType.Crafter}})
+            if (mobile is IZuluClassed { ZuluClass: { Type: ZuluClassType.Crafter } })
             {
-                amount = (int) (amount * ClasseBonus) + 1;
+                amount = (int)(amount * ClasseBonus) + 1;
             }
         }
 
         public void OnHarvestColoredQualityChance(Mobile mobile, ref int bonus, ref int toMod)
         {
-            if (mobile is IZuluClassed {ZuluClass: {Type: ZuluClassType.Crafter}})
+            if (mobile is IZuluClassed { ZuluClass: { Type: ZuluClassType.Crafter } })
             {
-                bonus = (int) (bonus * ClasseBonus);
-                toMod = (int) (toMod / ClasseBonus);
+                bonus = (int)(bonus * ClasseBonus);
+                toMod = (int)(toMod / ClasseBonus);
             }
         }
 
         public void OnHarvestColoredChance(Mobile mobile, ref int chance)
         {
-            if (mobile is IZuluClassed {ZuluClass: {Type: ZuluClassType.Crafter}})
+            if (mobile is IZuluClassed { ZuluClass: { Type: ZuluClassType.Crafter } })
             {
-                chance = (int) (chance * ClasseBonus);
+                chance = (int)(chance * ClasseBonus);
 
                 if (chance > 90)
                     chance = 90;
@@ -507,7 +534,6 @@ namespace Scripts.Zulu.Engines.Classes
 
         public void OnGetSwingDelay(ref double delayInSeconds, Mobile m)
         {
-            m.SendAsciiMessage("OnSwing from ZuluClass");
         }
 
         public void OnCheckHit(Mobile attacker, Mobile defender, ref bool result)
@@ -518,15 +544,15 @@ namespace Scripts.Zulu.Engines.Classes
         {
         }
 
-        public void OnAbsorbMeleeDamage(Mobile attacker, Mobile defender, BaseWeapon weapon, ref int damage)
+        public void OnAbsorbMeleeDamage(Mobile attacker, Mobile defender, BaseWeapon weapon, ref double damage)
         {
         }
 
-        public void OnShieldHit(Mobile attacker, Mobile defender, BaseWeapon weapon, BaseShield shield, ref int damage)
+        public void OnShieldHit(Mobile attacker, Mobile defender, BaseWeapon weapon, BaseShield shield, ref double damage)
         {
         }
 
-        public void OnArmorHit(Mobile attacker, Mobile defender, BaseWeapon weapon, BaseArmor armor, ref int damage)
+        public void OnArmorHit(Mobile attacker, Mobile defender, BaseWeapon weapon, BaseArmor armor, ref double damage)
         {
         }
 
@@ -536,10 +562,10 @@ namespace Scripts.Zulu.Engines.Classes
             if (
                 craftSystem is DefAlchemy
                 && item is BasePotion potion
-                && from is IZuluClassed {ZuluClass: {Type: ZuluClassType.Mage}}
+                && from is IZuluClassed { ZuluClass: { Type: ZuluClassType.Mage } }
             )
             {
-                var bonus = (uint) (potion.PotionStrength * ClasseBonus - potion.PotionStrength);
+                var bonus = (uint)(potion.PotionStrength * ClasseBonus - potion.PotionStrength);
                 if (bonus == 0)
                     bonus = 1;
 
@@ -554,7 +580,7 @@ namespace Scripts.Zulu.Engines.Classes
 
         public void OnCraftSkillRequiredForFame(Mobile from, ref int craftSkillRequiredForFame)
         {
-            if (from is IZuluClassed {ZuluClass: {Type: ZuluClassType.Crafter}})
+            if (from is IZuluClassed { ZuluClass: { Type: ZuluClassType.Crafter } })
             {
                 craftSkillRequiredForFame = 110;
             }
@@ -562,7 +588,7 @@ namespace Scripts.Zulu.Engines.Classes
 
         public void OnSummonFamiliar(Mobile caster, BaseCreature familiar)
         {
-            if (caster is IZuluClassed {ZuluClass: {Type: ZuluClassType.Mage}})
+            if (caster is IZuluClassed { ZuluClass: { Type: ZuluClassType.Mage } })
             {
                 familiar.RawStr += caster.RawStr;
                 familiar.RawInt += caster.RawInt;
@@ -572,19 +598,19 @@ namespace Scripts.Zulu.Engines.Classes
 
         public void OnCure(Mobile caster, Mobile target, Poison poison, object source, ref double difficulty)
         {
-            if (source is CureSpell && caster is IZuluClassed {ZuluClass: {Type: ZuluClassType.Mage}}) 
+            if (source is CureSpell && caster is IZuluClassed { ZuluClass: { Type: ZuluClassType.Mage } })
                 difficulty /= Bonus;
         }
 
         public void OnTrap(Mobile caster, Container target, ref double strength)
         {
-            if (caster is IZuluClassed {ZuluClass: {Type: ZuluClassType.Mage}})
+            if (caster is IZuluClassed { ZuluClass: { Type: ZuluClassType.Mage } })
                 strength *= Bonus;
         }
 
         public virtual void OnMove(Mobile mobile, Direction direction, ref bool canMove)
         {
-            
+
         }
 
         public void OnHiddenChanged(Mobile mobile) { }
@@ -592,6 +618,10 @@ namespace Scripts.Zulu.Engines.Classes
         #endregion
 
         #region Unused hooks
+
+        public void OnDeath(Mobile victim, ref bool resurrect)
+        {
+        }
 
         public void OnToolHarvestBonus(Mobile harvester, ref int amount)
         {
@@ -605,7 +635,7 @@ namespace Scripts.Zulu.Engines.Classes
         {
         }
 
-        public void OnAdded(IEntity entity)
+        public void OnAdded(IEntity entity, IEntity parent)
         {
         }
 

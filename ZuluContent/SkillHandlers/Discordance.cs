@@ -1,232 +1,206 @@
 using System;
-using System.Collections;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Scripts.Zulu.Engines.Classes;
+using Scripts.Zulu.Utilities;
 using Server.Items;
 using Server.Targeting;
 using Server.Mobiles;
+using ZuluContent.Zulu.Skills;
 
 namespace Server.SkillHandlers
 {
-	public class Discordance
-	{
-		public static void Initialize()
-		{
-			SkillInfo.Table[(int)SkillName.Discordance].Callback = OnUse;
-		}
+    public class Discordance : BaseSkillHandler
+    {
+        private static readonly Dictionary<Serial, DiscordanceInfo> ActiveDiscords = new();
 
-		public static TimeSpan OnUse( Mobile m )
-		{
-			m.RevealingAction();
+        public override SkillName Skill { get; } = SkillName.Discordance;
 
-			BaseInstrument.PickInstrument( m, OnPickedInstrument );
+        public override async Task<TimeSpan> OnUse(Mobile from)
+        {
+            from.RevealingAction();
 
-			return TimeSpan.FromSeconds( 1.0 ); // Cannot use another skill for 1 second
-		}
+            var instrument = BaseInstrument.PickInstrument(from);
 
-		public static void OnPickedInstrument( Mobile from, BaseInstrument instrument )
-		{
-			from.RevealingAction();
-			from.SendLocalizedMessage( 1049541 ); // Choose the target for your song of discordance.
-			from.Target = new DiscordanceTarget( from, instrument );
-			from.NextSkillTime = Core.TickCount + 6000;
-		}
+            if (instrument == null)
+            {
+                from.SendFailureMessage("You don't have an instrument to play!");
+                return Delay;
+            }
 
-		private class DiscordanceInfo
-		{
-			public Mobile m_From;
-			public Mobile m_Creature;
-			public long m_EndTime;
-			public bool m_Ending;
-			public Timer m_Timer;
-			public int m_Effect;
-			public ArrayList m_Mods;
+            from.SendSuccessMessage(1049541); // Choose the target for your song of discordance.
+            var target = new AsyncTarget<BaseCreature>(from,
+                new TargetOptions {Range = BaseInstrument.GetBardRange(from, SkillName.Provocation)});
+            from.Target = target;
 
-			public DiscordanceInfo( Mobile from, Mobile creature, int effect, ArrayList mods )
-			{
-				m_From = from;
-				m_Creature = creature;
-				m_EndTime = Core.TickCount;
-				m_Ending = false;
-				m_Effect = effect;
-				m_Mods = mods;
+            var (creature, _) = await target;
+            
+            if (!instrument.IsChildOf(from.Backpack))
+            {
+                // The instrument you are trying to play is no longer in your backpack!
+                from.SendFailureMessage(1062488);
+                return Delay;
+            }
 
-				Apply();
-			}
+            if (creature == from || (creature.BardImmune || !from.CanBeHarmful(creature, false)) && creature.ControlMaster != from)
+            {
+                from.SendFailureMessage(1049535); // A song of discord would have no effect on that.
+                return Delay;
+            }
 
-			public void Apply()
-			{
-				for ( int i = 0; i < m_Mods.Count; ++i )
-				{
-					object mod = m_Mods[i];
+            if (ActiveDiscords.ContainsKey(creature.Serial)) // Already discorded
+            {
+                from.SendFailureMessage(1049537); // Your target is already in discord.
+                return Delay;
+            }
 
-					if ( mod is StatMod )
-						m_Creature.AddStatMod( (StatMod) mod );
-					else if ( mod is SkillMod )
-						m_Creature.AddSkillMod( (SkillMod) mod );
-				}
-			}
+            var difficulty = BaseInstrument.GetDifficulty(creature);
 
-			public void Clear()
-			{
-				for ( int i = 0; i < m_Mods.Count; ++i )
-				{
-					object mod = m_Mods[i];
+            difficulty /= from.GetClassModifier(Skill);
 
-					if ( mod is StatMod )
-						m_Creature.RemoveStatMod( ((StatMod) mod).Name );
-					else if ( mod is SkillMod )
-						m_Creature.RemoveSkillMod( (SkillMod) mod );
-				}
-			}
-		}
+            if (!from.ShilCheckSkill(SkillName.Musicianship, (int) difficulty, (int) (difficulty * 10)))
+            {
+                from.SendFailureMessage(500612); // You play poorly, and there is no effect.
+                instrument.PlayInstrumentBadly(from);
+                instrument.ConsumeUse(from);
+                return Delay;
+            }
 
-		private static Hashtable m_Table = new Hashtable();
+            if (!from.ShilCheckSkill(SkillName.Discordance, (int) difficulty, (int) (difficulty * 10)))
+            {
+                from.SendFailureMessage(1049540); // You fail to disrupt your target
+                instrument.PlayInstrumentBadly(from);
+                instrument.ConsumeUse(from);
+                return Delay;
+            }
 
-		public static bool GetEffect( Mobile targ, ref int effect )
-		{
-			DiscordanceInfo info = m_Table[targ] as DiscordanceInfo;
+            from.SendSuccessMessage(1049539); // You play the song suppressing your targets strength
+            instrument.PlayInstrumentWell(from);
+            instrument.ConsumeUse(from);
 
-			if ( info == null )
-				return false;
 
-			effect = info.m_Effect;
-			return true;
-		}
+            var effect = (int) (from.Skills[SkillName.Discordance].Value / -5.0);
+            var scalar = effect * 0.01 * from.GetClassModifier(Skill);
 
-		private static void ProcessDiscordance( DiscordanceInfo info )
-		{
-			Mobile from = info.m_From;
-			Mobile targ = info.m_Creature;
-			bool ends = false;
+            var mods = new List<object>
+            {
+                new StatMod(StatType.Str, "DiscordanceStr", (int) (creature.RawStr * scalar), TimeSpan.Zero),
+                new StatMod(StatType.Int, "DiscordanceInt", (int) (creature.RawInt * scalar), TimeSpan.Zero),
+                new StatMod(StatType.Dex, "DiscordanceDex", (int) (creature.RawDex * scalar), TimeSpan.Zero)
+            };
 
-			// According to uoherald bard must remain alive, visible, and
-			// within range of the target or the effect ends in 15 seconds.
-			if ( !targ.Alive || targ.Deleted || !from.Alive || from.Hidden )
-				ends = true;
-			else
-			{
-				int range = (int) targ.GetDistanceToSqrt( from );
-				int maxRange = BaseInstrument.GetBardRange( from, SkillName.Discordance );
+            for (var i = 0; i < creature.Skills.Length; ++i)
+            {
+                if (creature.Skills[i].Value > 0)
+                    mods.Add(new DefaultSkillMod((SkillName) i, true, creature.Skills[i].Value * scalar));
+            }
 
-				if ( from.Map != targ.Map || range > maxRange )
-					ends = true;
-			}
+            var info = new DiscordanceInfo(from, creature, mods);
+            
+            Timer.StartTimer(TimeSpan.Zero, TimeSpan.FromSeconds(1.25), () => ProcessDiscordance(info), out var timerToken);
+            info.TimerToken = timerToken;
 
-			if ( ends && info.m_Ending && info.m_EndTime < Core.TickCount )
-			{
-				if ( info.m_Timer != null )
-					info.m_Timer.Stop();
+            ActiveDiscords[creature.Serial] = info;
 
-				info.Clear();
-				m_Table.Remove( targ );
-			}
-			else
-			{
-				if ( ends && !info.m_Ending )
-				{
-					info.m_Ending = true;
-					info.m_EndTime = Core.TickCount + 15000;
-				}
-				else if ( !ends )
-				{
-					info.m_Ending = false;
-					info.m_EndTime = Core.TickCount;
-				}
+            return Delay;
+        }
+        
+        private class DiscordanceInfo
+        {
+            public readonly Mobile From;
+            public readonly Mobile Creature;
+            public long EndTime;
+            public bool Ending;
+            public TimerExecutionToken TimerToken;
+            public readonly List<object> Mods;
 
-				targ.FixedEffect( 0x376A, 1, 32 );
-			}
-		}
+            public DiscordanceInfo(Mobile from, Mobile creature, List<object> mods)
+            {
+                From = from;
+                Creature = creature;
+                EndTime = Core.TickCount;
+                Ending = false;
+                Mods = mods;
 
-		public class DiscordanceTarget : Target
-		{
-			private BaseInstrument m_Instrument;
+                Apply();
+            }
 
-			public DiscordanceTarget( Mobile from, BaseInstrument inst ) : base( BaseInstrument.GetBardRange( from, SkillName.Discordance ), false, TargetFlags.None )
-			{
-				m_Instrument = inst;
-			}
+            public void Apply()
+            {
+                foreach (var mod in Mods)
+                {
+                    switch (mod)
+                    {
+                        case StatMod statMod:
+                            Creature.AddStatMod(statMod);
+                            break;
+                        case SkillMod skillMod:
+                            Creature.AddSkillMod(skillMod);
+                            break;
+                    }
+                }
+            }
 
-			protected override void OnTarget( Mobile from, object target )
-			{
-				from.RevealingAction();
-				from.NextSkillTime = Core.TickCount + 1000;
+            public void Clear()
+            {
+                foreach (var mod in Mods)
+                {
+                    switch (mod)
+                    {
+                        case StatMod statMod:
+                            Creature.RemoveStatMod(statMod.Name);
+                            break;
+                        case SkillMod skillMod:
+                            Creature.RemoveSkillMod(skillMod);
+                            break;
+                    }
+                }
+            }
+        }
 
-				if ( !m_Instrument.IsChildOf( from.Backpack ) )
-				{
-					from.SendLocalizedMessage( 1062488 ); // The instrument you are trying to play is no longer in your backpack!
-				}
-				else if ( target is Mobile )
-				{
-					Mobile targ = (Mobile)target;
+        private static void ProcessDiscordance(DiscordanceInfo info)
+        {
+            var from = info.From;
+            var creature = info.Creature;
+            var ends = false;
 
-					if ( targ == from || targ is BaseCreature && ( ((BaseCreature)targ).BardImmune || !@from.CanBeHarmful( targ, false ) ) && ((BaseCreature)targ).ControlMaster != @from )
-					{
-						from.SendLocalizedMessage( 1049535 ); // A song of discord would have no effect on that.
-					}
-					else if ( m_Table.Contains( targ ) ) //Already discorded
-					{
-						from.SendLocalizedMessage( 1049537 );// Your target is already in discord.
-					}
-					else if ( !targ.Player )
-					{
-						double diff = m_Instrument.GetDifficultyFor( targ ) - 10.0;
-						double music = from.Skills[SkillName.Musicianship].Value;
+            // According to uoherald bard must remain alive, visible, and
+            // within range of the target or the effect ends in 15 seconds.
+            if (!creature.Alive || creature.Deleted || !from.Alive || from.Hidden)
+            {
+                ends = true;
+            }
+            else
+            {
+                var range = (int) creature.GetDistanceToSqrt(from);
+                var maxRange = BaseInstrument.GetBardRange(from, SkillName.Discordance);
 
-						if ( music > 100.0 )
-							diff -= (music - 100.0) * 0.5;
+                if (from.Map != creature.Map || range > maxRange)
+                    ends = true;
+            }
 
-						if ( !BaseInstrument.CheckMusicianship( from ) )
-						{
-							from.SendLocalizedMessage( 500612 ); // You play poorly, and there is no effect.
-							m_Instrument.PlayInstrumentBadly( from );
-							m_Instrument.ConsumeUse( from );
-						}
-						else if ( from.CheckTargetSkill( SkillName.Discordance, target, diff-25.0, diff+25.0 ) )
-						{
-							from.SendLocalizedMessage( 1049539 ); // You play the song surpressing your targets strength
-							m_Instrument.PlayInstrumentWell( from );
-							m_Instrument.ConsumeUse( from );
+            if (ends && info.Ending && info.EndTime < Core.TickCount)
+            {
+                info.TimerToken.Cancel();
+                info.Clear();
+                ActiveDiscords.Remove(creature.Serial);
+            }
+            else
+            {
+                switch (ends)
+                {
+                    case true when !info.Ending:
+                        info.Ending = true;
+                        info.EndTime = Core.TickCount + 15000;
+                        break;
+                    case false:
+                        info.Ending = false;
+                        info.EndTime = Core.TickCount;
+                        break;
+                }
 
-							ArrayList mods = new ArrayList();
-							int effect;
-							double scalar;
-
-							effect = (int)( from.Skills[SkillName.Discordance].Value / -5.0 );
-							scalar = effect * 0.01;
-
-							mods.Add( new StatMod( StatType.Str, "DiscordanceStr", (int)(targ.RawStr * scalar), TimeSpan.Zero ) );
-							mods.Add( new StatMod( StatType.Int, "DiscordanceInt", (int)(targ.RawInt * scalar), TimeSpan.Zero ) );
-							mods.Add( new StatMod( StatType.Dex, "DiscordanceDex", (int)(targ.RawDex * scalar), TimeSpan.Zero ) );
-
-							for ( int i = 0; i < targ.Skills.Length; ++i )
-							{
-								if ( targ.Skills[i].Value > 0 )
-									mods.Add( new DefaultSkillMod( (SkillName)i, true, targ.Skills[i].Value * scalar ) );
-							}
-
-                            DiscordanceInfo info = new DiscordanceInfo( from, targ, Math.Abs( effect ), mods );
-							info.m_Timer = Timer.DelayCall<DiscordanceInfo>( TimeSpan.Zero, TimeSpan.FromSeconds( 1.25 ), ProcessDiscordance, info );
-
-							m_Table[targ] = info;
-						}
-						else
-						{
-							from.SendLocalizedMessage( 1049540 );// You fail to disrupt your target
-							m_Instrument.PlayInstrumentBadly( from );
-							m_Instrument.ConsumeUse( from );
-						}
-
-						from.NextSkillTime = Core.TickCount + 12000;
-					}
-					else
-					{
-						m_Instrument.PlayInstrumentBadly( from );
-					}
-				}
-				else
-				{
-					from.SendLocalizedMessage( 1049535 ); // A song of discord would have no effect on that.
-				}
-			}
-		}
-	}
+                creature.FixedEffect(0x376A, 1, 32);
+            }
+        }
+    }
 }

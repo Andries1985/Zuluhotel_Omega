@@ -1,11 +1,5 @@
-using System;
-using System.Collections;
-using System.Collections.Generic;
 using System.Threading.Tasks;
 using Server;
-using Server.Engines.Magic;
-using Server.Network;
-using Server.Items;
 using Server.Spells;
 using Server.Targeting;
 using ZuluContent.Zulu.Engines.Magic;
@@ -14,7 +8,7 @@ namespace Scripts.Zulu.Spells.Necromancy
 {
     public class AbyssalFlameSpell : NecromancerSpell, ITargetableAsyncSpell<Mobile>
     {
-        public AbyssalFlameSpell(Mobile caster, Item spellItem) : base(caster, spellItem) { }
+        public AbyssalFlameSpell(Mobile caster, Item spellItem = null) : base(caster, spellItem) { }
 
         public async Task OnTargetAsync(ITargetResponse<Mobile> response)
         {

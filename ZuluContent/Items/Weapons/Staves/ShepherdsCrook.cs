@@ -1,4 +1,6 @@
 using System;
+using Scripts.Zulu.Engines.Classes;
+using Scripts.Zulu.Utilities;
 using Server.Network;
 using Server.Targeting;
 using Server.Mobiles;
@@ -8,45 +10,22 @@ namespace Server.Items
     [FlipableAttribute(0xE81, 0xE82)]
     public class ShepherdsCrook : BaseStaff
     {
-        public override int DefaultStrengthReq
-        {
-            get { return 10; }
-        }
-
-        public override int DefaultMinDamage
-        {
-            get { return 3; }
-        }
-
-        public override int DefaultMaxDamage
-        {
-            get { return 12; }
-        }
-
-        public override int DefaultSpeed
-        {
-            get { return 30; }
-        }
-
-        public override int InitMinHits
-        {
-            get { return 31; }
-        }
-
-        public override int InitMaxHits
-        {
-            get { return 50; }
-        }
+        public override int DefaultMinDamage => 3;
+        public override int DefaultMaxDamage => 12;
+        public override int DefaultSpeed => 30;
+        public override int InitMinHits => 70;
+        public override int InitMaxHits => 70;
 
 
         [Constructible]
-public ShepherdsCrook() : base(0xE81)
+        public ShepherdsCrook() : base(0xE81)
         {
             Weight = 4.0;
+            Layer = Layer.TwoHanded;
         }
 
         [Constructible]
-public ShepherdsCrook(Serial serial) : base(serial)
+        public ShepherdsCrook(Serial serial) : base(serial)
         {
         }
 
@@ -69,7 +48,7 @@ public ShepherdsCrook(Serial serial) : base(serial)
 
         public override void OnDoubleClick(Mobile from)
         {
-            from.SendLocalizedMessage(502464); // Target the animal you wish to herd.
+            from.SendSuccessMessage(502464); // Target the animal you wish to herd.
             from.Target = new HerdingTarget();
         }
 
@@ -81,10 +60,8 @@ public ShepherdsCrook(Serial serial) : base(serial)
 
             protected override void OnTarget(Mobile from, object targ)
             {
-                if (targ is BaseCreature)
+                if (targ is BaseCreature bc)
                 {
-                    BaseCreature bc = (BaseCreature) targ;
-
                     if (IsHerdable(bc))
                     {
                         if (bc.Controlled)
@@ -94,28 +71,20 @@ public ShepherdsCrook(Serial serial) : base(serial)
                         }
                         else
                         {
-                            from.SendLocalizedMessage(502475); // Click where you wish the animal to go.
+                            from.SendSuccessMessage(502475); // Click where you wish the animal to go.
                             from.Target = new InternalTarget(bc);
                         }
                     }
                     else
                     {
-                        from.SendLocalizedMessage(502468); // That is not a herdable animal.
+                        from.SendFailureMessage(502468); // That is not a herdable animal.
                     }
                 }
                 else
                 {
-                    from.SendLocalizedMessage(502472); // You don't seem to be able to persuade that to move.
+                    from.SendFailureMessage(502472); // You don't seem to be able to persuade that to move.
                 }
             }
-
-            private static Type[] m_ChampTamables = new[]
-            {
-                typeof(Imp), typeof(GiantScorpion), typeof(GiantRockSpider),
-                typeof(Snake), typeof(LavaLizard), typeof(Drake), typeof(Dragon),
-                typeof(GiantRat), typeof(Slime),
-                typeof(DireWolf), typeof(HellHound)
-            };
 
             private bool IsHerdable(BaseCreature bc)
             {
@@ -136,28 +105,32 @@ public ShepherdsCrook(Serial serial) : base(serial)
 
                 protected override void OnTarget(Mobile from, object targ)
                 {
-                    if (targ is IPoint2D)
+                    if (targ is IPoint2D targetedPoint)
                     {
-                        double min = m_Creature.MinTameSkill - 30;
-                        double max = m_Creature.MinTameSkill + 30 + Utility.Random(10);
+                        var difficulty = m_Creature.MinTameSkill;
 
-                        if (max <= from.Skills[SkillName.Herding].Value)
+                        if (difficulty == 0)
+                            difficulty = 100;
+                        
+                        difficulty /= from.GetClassModifier(SkillName.Herding);
+
+                        if (difficulty <= from.Skills[SkillName.Herding].Value)
                             m_Creature.PrivateOverheadMessage(MessageType.Regular, 0x3B2, 502471,
                                 from.NetState); // That wasn't even challenging.
 
-                        if (from.CheckTargetSkill(SkillName.Herding, m_Creature, min, max))
+                        if (from.ShilCheckSkill(SkillName.Herding, (int) difficulty, (int) (difficulty * 10)))
                         {
-                            IPoint2D p = (IPoint2D) targ;
+                            var p = targetedPoint;
 
                             if (targ != from)
                                 p = new Point2D(p.X, p.Y);
 
                             m_Creature.TargetLocation = p;
-                            from.SendLocalizedMessage(502479); // The animal walks where it was instructed to.
+                            from.SendSuccessMessage(502479); // The animal walks where it was instructed to.
                         }
                         else
                         {
-                            from.SendLocalizedMessage(502472); // You don't seem to be able to persuade that to move.
+                            from.SendFailureMessage(502472); // You don't seem to be able to persuade that to move.
                         }
                     }
                 }

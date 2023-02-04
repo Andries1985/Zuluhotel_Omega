@@ -3,7 +3,6 @@ using Scripts.Zulu.Engines.Classes;
 using Scripts.Zulu.Utilities;
 using Server.Engines.Craft;
 using Server.Mobiles;
-using static Server.Configurations.ResourceConfiguration;
 
 namespace Server.Items
 {
@@ -13,6 +12,8 @@ namespace Server.Items
         public CraftResource Resource { get; set; }
 
         public override string DefaultName => $"{CraftResources.GetName(Resource)} ore";
+
+        public override double DefaultWeight => 0.5;
 
         public abstract BaseIngot GetIngot();
 
@@ -55,7 +56,6 @@ namespace Server.Items
             Stackable = true;
             Amount = amount;
             Hue = CraftResources.GetHue(resource);
-
             Resource = resource;
         }
 
@@ -105,7 +105,6 @@ namespace Server.Items
             from.AddToBackpack(ingot);
             from.SendSuccessMessage($"You create {Amount} ingots and place them in your pack.");
             Delete();
-            return;
         }
     }
 }

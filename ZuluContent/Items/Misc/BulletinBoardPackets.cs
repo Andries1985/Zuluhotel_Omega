@@ -48,13 +48,13 @@ namespace Server.Network
             return $"{seconds} second{(seconds == 1 ? "" : "s")}";
         }
 
-        public static void BBClientRequest(NetState state, CircularBufferReader reader, ref int packetLength)
+        public static void BBClientRequest(NetState state, CircularBufferReader reader, int packetLength)
         {
             var from = state.Mobile;
 
             int packetID = reader.ReadByte();
 
-            if (World.FindItem(reader.ReadUInt32()) is not BaseBulletinBoard board || !board.CheckRange(from))
+            if (World.FindItem((Serial) reader.ReadUInt32()) is not BaseBulletinBoard board || !board.CheckRange(from))
             {
                 return;
             }
@@ -78,7 +78,7 @@ namespace Server.Network
 
         public static void BBRequestContent(Mobile from, BaseBulletinBoard board, CircularBufferReader reader)
         {
-            if (World.FindItem(reader.ReadUInt32()) is not BulletinMessage msg || msg.Parent != board)
+            if (World.FindItem((Serial) reader.ReadUInt32()) is not BulletinMessage msg || msg.Parent != board)
             {
                 return;
             }
@@ -88,7 +88,7 @@ namespace Server.Network
 
         public static void BBRequestHeader(Mobile from, BaseBulletinBoard board, CircularBufferReader reader)
         {
-            if (World.FindItem(reader.ReadUInt32()) is not BulletinMessage msg || msg.Parent != board)
+            if (World.FindItem((Serial) reader.ReadUInt32()) is not BulletinMessage msg || msg.Parent != board)
             {
                 return;
             }
@@ -98,7 +98,7 @@ namespace Server.Network
 
         public static void BBPostMessage(Mobile from, BaseBulletinBoard board, CircularBufferReader reader)
         {
-            var thread = World.FindItem(reader.ReadUInt32()) as BulletinMessage;
+            var thread = World.FindItem((Serial) reader.ReadUInt32()) as BulletinMessage;
 
             if (thread != null && thread.Parent != board)
             {
@@ -155,7 +155,7 @@ namespace Server.Network
 
         public static void BBRemoveMessage(Mobile from, BaseBulletinBoard board, CircularBufferReader reader)
         {
-            if (World.FindItem(reader.ReadUInt32()) is not BulletinMessage msg || msg.Parent != board)
+            if (World.FindItem((Serial) reader.ReadUInt32()) is not BulletinMessage msg || msg.Parent != board)
             {
                 return;
             }
@@ -188,7 +188,7 @@ namespace Server.Network
 
             // We are ok with the string being cut-off mid character. The alternative is very slow.
             var byteLength = Math.Min(29, TextEncoding.UTF8.GetBytes(textChars, textBuffer));
-            writer.Write(textBuffer.SliceToLength(byteLength));
+            writer.Write(textBuffer[..byteLength]);
             writer.Clear(30 - byteLength); // terminator
 
             ns.Send(writer.Span);
@@ -281,7 +281,7 @@ namespace Server.Network
             var tail = pad ? 2 : 1;
             var length = Math.Min(pad ? 253 : 254, text.GetBytesUtf8(buffer));
             writer.Write((byte)(length + tail));
-            writer.Write(buffer.SliceToLength(length));
+            writer.Write(buffer[..length]);
 
             if (pad)
             {

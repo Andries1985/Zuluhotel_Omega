@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using Scripts.Zulu.Engines.Classes;
 using Server;
+using Server.ContextMenus;
 using Server.Engines.Magic;
 using Server.Spells;
 using ZuluContent.Zulu.Engines.Magic;
@@ -31,6 +34,14 @@ namespace ZuluContent.Zulu.Items
 
                 Enchantments.Identified = value;
             }
+        }
+        
+        [Hue]
+        [CommandProperty(AccessLevel.GameMaster)]
+        public override int Hue
+        {
+            get => Identified ? base.Hue : 0x0;
+            set => base.Hue = value;
         }
         
         [CommandProperty(AccessLevel.GameMaster)]
@@ -185,6 +196,16 @@ namespace ZuluContent.Zulu.Items
             get => Enchantments.Get((SecondSkillBonus e) => e.Value);
             set => Enchantments.Set((SecondSkillBonus e) => e.Value = value);
         }
+        
+        public override void GetContextMenuEntries(Mobile from, List<ContextMenuEntry> list)
+        {
+            base.GetContextMenuEntries(from, list);
+
+            if (from is IZuluClassed { ZuluClass.Type: ZuluClassType.Mage } && from.Alive && Identified == false)
+            {
+                list.Add(new IdentifyEntry(from, this));
+            }
+        }
 
         public BaseEquippableItem(Serial serial) : base(serial)
         {
@@ -207,7 +228,7 @@ namespace ZuluContent.Zulu.Items
                     $"That item is cursed, and reveals itself to be a {SingleClickHandler.GetMagicItemName(this)}");    
             }
             
-            Enchantments.FireHook(e => e.OnAdded(this));
+            Enchantments.FireHook(e => e.OnAdded(this, parent));
         }
 
         public override void OnRemoved(IEntity parent)
@@ -227,6 +248,12 @@ namespace ZuluContent.Zulu.Items
             return canLift;
         }
 
+        public override void OnDoubleClick(Mobile from)
+        {
+            if (Movable && IsAccessibleTo(from))
+                from.EquipItem(this);
+        }
+
         public override void Serialize(IGenericWriter writer)
         {
             base.Serialize(writer);
@@ -237,8 +264,8 @@ namespace ZuluContent.Zulu.Items
         {
             base.Deserialize(reader);
             m_Enchantments = EnchantmentDictionary.Deserialize(reader);
-            if (Parent is Mobile m)
-                m_Enchantments.FireHook(e => e.OnAdded(this));
+            if (Parent is Mobile mobile)
+                m_Enchantments.FireHook(e => e.OnAdded(this, mobile));
         }
     }
 }

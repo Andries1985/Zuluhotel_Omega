@@ -13,7 +13,7 @@ namespace Server.SkillHandlers
 {
     public class AnimalLore : BaseSkillHandler
     {
-        public override SkillName Skill { get; } = SkillName.AnimalLore;
+        public override SkillName Skill => SkillName.AnimalLore;
 
         private static readonly TargetOptions TargetOptions = new()
         {
@@ -25,7 +25,7 @@ namespace Server.SkillHandlers
             var target = new AsyncTarget<BaseCreature>(from, TargetOptions);
             from.Target = target;
 
-            from.SendLocalizedMessage(500328); // What animal should I look at?
+            from.SendSuccessMessage(500328); // What animal should I look at?
 
             var (creature, responseType) = await target;
 

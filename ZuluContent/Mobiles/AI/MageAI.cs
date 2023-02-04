@@ -141,7 +141,7 @@ namespace Server.Mobiles
             double delay;
 
             if (m_Mobile.Int >= 500)
-                delay = Utility.RandomMinMax(7, 10);
+                delay = Utility.RandomMinMax(20, 30);
             else
                 delay = Math.Sqrt(600 - m_Mobile.Int);
 
@@ -225,7 +225,10 @@ namespace Server.Mobiles
 
         public virtual Spell GetRandomDamageSpellMage()
         {
-            int maxCircle = (int) ((m_Mobile.Skills[SkillName.Magery].Value + 20.0) / (100.0 / 7.0));
+            if (m_Mobile.PreferredSpells?.Count > 0 && Utility.RandomDouble() < 0.75)
+                return SpellRegistry.Create(m_Mobile.PreferredSpells.RandomElement(), m_Mobile);
+            
+            var maxCircle = (int) ((m_Mobile.Skills[SkillName.Magery].Value + 20.0) / (100.0 / 7.0));
 
             maxCircle = maxCircle switch
             {
@@ -233,9 +236,6 @@ namespace Server.Mobiles
                 > 8 => 8,
                 _ => maxCircle
             };
-
-            if (m_Mobile.PreferredSpells?.Count > 0 && Utility.RandomDouble() < 0.75)
-                return SpellRegistry.Create(m_Mobile.PreferredSpells.RandomElement(), m_Mobile);
 
             switch (Utility.Random(maxCircle * 2))
             {
@@ -324,7 +324,7 @@ namespace Server.Mobiles
                 if (spell != null)
                     return spell;
 
-                switch (Utility.Random(16))
+                switch (Utility.Random(15))
                 {
                     case 0:
                     case 1: // Poison them
@@ -367,16 +367,6 @@ namespace Server.Mobiles
                         m_Mobile.DebugSay("Attempting to drain mana");
 
                         spell = GetRandomManaDrainSpell();
-                        break;
-                    }
-                    case 7: // Invis ourselves
-                    {
-                        if (Utility.RandomBool())
-                            goto default;
-
-                        m_Mobile.DebugSay("Attempting to invis myself");
-
-                        spell = new InvisibilitySpell(m_Mobile);
                         break;
                     }
                     default: // Damage them
@@ -932,16 +922,11 @@ namespace Server.Mobiles
             var isDispel = targ is AsyncSpellTarget {Spell: DispelSpell};
             var isParalyze = targ is AsyncSpellTarget {Spell: ParalyzeSpell};
             var isTeleport = targ is AsyncSpellTarget {Spell: TeleportSpell};
-            var isInvisible = targ is AsyncSpellTarget {Spell: InvisibilitySpell};
             var teleportAway = false;
 
             Mobile toTarget;
 
-            if (isInvisible)
-            {
-                toTarget = m_Mobile;
-            }
-            else if (isDispel)
+            if (isDispel)
             {
                 toTarget = FindDispelTarget(false);
 

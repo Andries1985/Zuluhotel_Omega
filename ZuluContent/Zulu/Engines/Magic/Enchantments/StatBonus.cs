@@ -2,7 +2,6 @@ using System;
 using MessagePack;
 using Server;
 using ZuluContent.Zulu.Engines.Magic.Enums;
-using ZuluContent.Zulu.Engines.Magic.Hooks;
 
 namespace ZuluContent.Zulu.Engines.Magic.Enchantments
 {
@@ -10,7 +9,7 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
     public class IntBonus : BaseStatBonus<IntBonusInfo>
     {
         [IgnoreMember]
-        public override string AffixName => EnchantmentInfo.GetName(Value, Cursed);
+        public override string AffixName => Value > 0 ? EnchantmentInfo.GetName(Value / 5, Cursed) : string.Empty;
         public IntBonus() : base(StatType.Int) { }
     }
     
@@ -38,7 +37,7 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
     public class DexBonus : BaseStatBonus<DexBonusInfo>
     {
         [IgnoreMember]
-        public override string AffixName => EnchantmentInfo.GetName(Value / 5, Cursed);
+        public override string AffixName => Value > 0 ? EnchantmentInfo.GetName(Value / 5, Cursed) : string.Empty;
         public DexBonus() : base(StatType.Dex) { }
     }
 
@@ -95,6 +94,7 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
         protected StatMod Mod;
         private int m_Value;
         protected Mobile Mobile;
+        protected IEntity Entity;
 
         [Key(1)]
         public virtual int Value
@@ -105,7 +105,7 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
                 if (value == m_Value || value == 0 && m_Value == 0)
                     return;
                 
-                AddStatMod(Mobile);
+                AddStatMod(Mobile, Entity);
                 m_Value = value;
             }
         }
@@ -117,14 +117,14 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
 
         protected virtual string StatModName => $"{GetType().Name}:{StatType.ToString()}";
 
-        protected void AddStatMod(Mobile mobile)
+        protected void AddStatMod(Mobile mobile, IEntity entity)
         {
             if (mobile == null)
                 return;
             
             Mod = new StatMod(
                 StatType,
-                StatModName,
+                $"{StatModName}:{entity.GetType().Name}",
                 Value,
                 TimeSpan.Zero
             );
@@ -132,14 +132,15 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
             mobile.AddStatMod(Mod);
         }
 
-        public override void OnAdded(IEntity entity)
+        public override void OnAdded(IEntity entity, IEntity parent)
         {
-            base.OnAdded(entity);
+            base.OnAdded(entity, parent);
 
-            if (entity is Mobile mobile)
+            if (parent is Mobile mobile)
             {
                 Mobile = mobile;
-                AddStatMod(mobile);
+                Entity = entity;
+                AddStatMod(mobile, entity);
             }
         }
 
@@ -148,6 +149,7 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
             if (parent is Mobile mobile)
             {
                 Mobile = null;
+                Entity = null;
 
                 if (Mod != null)
                     mobile.RemoveStatMod(Mod.Name);

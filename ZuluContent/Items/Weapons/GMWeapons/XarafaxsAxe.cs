@@ -1,9 +1,12 @@
+using ModernUO.Serialization;
 using Server.Engines.Harvest;
 using ZuluContent.Zulu.Engines.Magic;
+using ZuluContent.Zulu.Items;
 
 namespace Server.Items
 {
-    public class XarafaxsAxe : BaseAxe, IUsesRemaining, IEnchanted
+    [SerializationGenerator(0, false)]
+    public partial class XarafaxsAxe : BaseAxe, IUsesRemaining, IGMItem
     {
         public override HarvestSystem HarvestSystem => Lumberjacking.System;
 
@@ -17,47 +20,24 @@ namespace Server.Items
 
         public override WeaponAnimation DefaultAnimation => WeaponAnimation.Bash1H;
 
+        public override bool AllowEquippedCast(Mobile from) => true;
+
+        public override string DefaultName => "Xarafax's Axe";
 
         [Constructible]
-        public XarafaxsAxe() : this(200)
+        public XarafaxsAxe() : this(1000)
         {
         }
-
 
         [Constructible]
         public XarafaxsAxe(int uses) : base(0x0F49)
         {
-            Name = "Xarafax's Axe";
             Weight = 11.0;
             Hue = 1162;
             UsesRemaining = uses;
             ShowUsesRemaining = true;
             HarvestBonus = 2;
-        }
-
-        [Constructible]
-        public XarafaxsAxe(Serial serial) : base(serial)
-        {
-        }
-
-        public override void OnSingleClick(Mobile from)
-        {
-            if (!string.IsNullOrEmpty(Name))
-                LabelTo(from, Name);
-        }
-
-        public override void Serialize(IGenericWriter writer)
-        {
-            base.Serialize(writer);
-
-            writer.Write((int) 0); // version
-        }
-
-        public override void Deserialize(IGenericReader reader)
-        {
-            base.Deserialize(reader);
-
-            int version = reader.ReadInt();
+            Identified = false;
         }
     }
 }

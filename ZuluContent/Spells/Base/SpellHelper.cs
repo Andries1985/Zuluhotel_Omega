@@ -31,8 +31,6 @@ namespace Server
                 : base(TimeSpan.FromMinutes(1.0))
             {
                 m_Mobile = m;
-
-                Priority = TimerPriority.OneSecond;
             }
 
             protected override void OnTick()
@@ -236,6 +234,11 @@ namespace Server.Spells
 
         public static int CalcSpellDamage(Mobile caster, Mobile target, Spell spell, bool areaSpell = false)
         {
+            return CalcSpellDamage(caster, target, spell.Info.Circle, areaSpell);
+        }
+
+        public static int CalcSpellDamage(Mobile caster, Mobile target, SpellCircle spellCircle, bool areaSpell = false)
+        {
             const int mageryDivider = 5;
             const int playerDivider = 3;
             const int circleMultiplier = 3;
@@ -243,8 +246,9 @@ namespace Server.Spells
 
             if (!caster.Alive || !target.Alive || target.Hidden)
                 return 0;
-
-            var circle = (int) spell.Info.Circle;
+            
+            var circle = (int) spellCircle;
+            
             if (areaSpell)
                 circle -= 3;
 
@@ -720,7 +724,8 @@ namespace Server.Spells
             if (delay.HasValue && delay.Value > TimeSpan.Zero)
                 await Timer.Pause(delay.Value);
             
-            target.FireHook(h => h.OnSpellDamage(caster, target, spell, damageType.Value, ref damage));
+            if (spell != null)
+                target.FireHook(h => h.OnSpellDamage(caster, target, spell, damageType.Value, ref damage));
             
             if(spell?.Info.Resistable ?? true)
                 damage = TryResistDamage(caster, target, spell?.Circle ?? SpellCircle.First, damage);

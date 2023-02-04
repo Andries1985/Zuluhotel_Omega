@@ -1,6 +1,6 @@
 using Server;
+using Server.Misc;
 using Server.Network;
-using static Server.Configurations.MessagingConfiguration;
 
 namespace Scripts.Zulu.Utilities
 {
@@ -8,13 +8,16 @@ namespace Scripts.Zulu.Utilities
     {
         private static void SendAscii(Mobile mobile, bool success, TextDefinition def, string args = "")
         {
+            if (def == null)
+                return;
+            
             if (def.IsString)
                 mobile.SendAsciiMessage(
                     success ? ZhConfig.Messaging.SuccessHue : ZhConfig.Messaging.FailureHue,
                     def.String
                 );
-            else if (args is not null && def.IsNumber)
-                mobile.SendAsciiMessage(
+            else if (def.IsNumber)
+                mobile.SendLocalizedMessage(
                     def.Number,
                     args,
                     success ? ZhConfig.Messaging.SuccessHue : ZhConfig.Messaging.FailureHue
@@ -23,6 +26,9 @@ namespace Scripts.Zulu.Utilities
 
         private static void SendLocalOverhead(Mobile mobile, bool success, TextDefinition def, string args = "")
         {
+            if (def == null)
+                return;
+            
             if (def.IsString)
                 mobile.LocalOverheadMessage(
                     MessageType.Regular,
@@ -41,6 +47,9 @@ namespace Scripts.Zulu.Utilities
         
         private static void SendPublicOverhead(Mobile mobile, bool success, TextDefinition def, string args = "")
         {
+            if (def == null)
+                return;
+            
             if (def.IsString)
                 mobile.PublicOverheadMessage(
                     MessageType.Regular,
@@ -59,6 +68,9 @@ namespace Scripts.Zulu.Utilities
         
         private static void SendPrivateOverhead(Mobile mobile, Mobile above, bool success, TextDefinition def, string args = "")
         {
+            if (def == null)
+                return;
+            
             if (def.IsString)
                 above.PrivateOverheadMessage(
                     MessageType.Regular,
@@ -91,13 +103,13 @@ namespace Scripts.Zulu.Utilities
         
         
         public static void SendFailurePrivateOverHeadMessage(this Mobile mobile, Mobile above, TextDefinition text, string args = "") =>
-            SendPrivateOverhead(mobile, above, true, text, args);
+            SendPrivateOverhead(mobile, above, false, text, args);
 
         public static void SendFailurePublicOverHeadMessage(this Mobile mobile, TextDefinition text, string args = "") =>
-            SendPublicOverhead(mobile, true, text, args);
+            SendPublicOverhead(mobile, false, text, args);
         
         public static void SendFailureLocalOverHeadMessage(this Mobile mobile, TextDefinition text, string args = "") =>
-            SendLocalOverhead(mobile, true, text, args);
+            SendLocalOverhead(mobile, false, text, args);
         
         public static void SendFailureMessage(this Mobile mobile, TextDefinition text, string args = "") =>
             SendAscii(mobile, false, text, args);

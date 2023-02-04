@@ -7,6 +7,7 @@ using Scripts.Zulu.Engines.Classes;
 using Server.Engines.Magic;
 using Server.Network;
 using Server.Spells;
+using ZuluContent.Configuration.Types.Creatures;
 using ZuluContent.Zulu.Engines.Magic;
 using ZuluContent.Zulu.Engines.Magic.Enchantments;
 using ZuluContent.Zulu.Engines.Magic.Enums;
@@ -19,7 +20,7 @@ namespace Server.Mobiles
 
         private ZuluClass m_ZuluClass;
 
-        public virtual CreatureProperties InitProperties => CreatureProperties.Get(GetType());
+        public virtual CreatureProperties InitProperties => this is BaseCreatureTemplate bt ? bt.Properties : null;
 
         #region IElementalResistible
 
@@ -48,48 +49,51 @@ namespace Server.Mobiles
         public int HealingBonus => this.GetResist(ElementalType.HealingBonus);
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public PoisonLevel PoisonImmunity => (PoisonLevel) this.GetResist(ElementalType.Poison);
+        public PoisonLevel PoisonImmunity => (PoisonLevel)this.GetResist(ElementalType.Poison);
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public SpellCircle MagicImmunity => (SpellCircle) this.GetResist(ElementalType.MagicImmunity);
+        public SpellCircle MagicImmunity => this.GetResist(ElementalType.MagicImmunity);
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public SpellCircle MagicReflection => (SpellCircle) this.GetResist(ElementalType.MagicReflection);
+        public SpellCircle MagicReflection => this.GetResist(ElementalType.MagicReflection);
 
         #endregion
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual bool InitialInnocent => InitProperties?.InitialInnocent ?? false;
+        public virtual bool InitialInnocent { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual bool AlwaysMurderer => InitProperties?.AlwaysMurderer ?? false;
+        public virtual bool AlwaysMurderer { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual bool AlwaysAttackable => InitProperties?.AlwaysAttackable ?? false;
+        public virtual bool AlwaysAttackable { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual bool TargetAcquireExhaustion => InitProperties.TargetAcquireExhaustion;
+        public virtual bool TargetAcquireExhaustion { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual Type RiseCreatureType => InitProperties?.RiseCreatureType;
+        public virtual string RiseCreatureTemplate { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual TimeSpan RiseCreatureDelay => InitProperties?.RiseCreatureDelay ?? TimeSpan.FromSeconds(5.0);
+        public virtual TimeSpan RiseCreatureDelay { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual List<Type> PreferredSpells => InitProperties?.PreferredSpells;
+        public virtual List<SpellEntry> PreferredSpells { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
         public virtual CreatureType CreatureType { get; set; } = CreatureType.None;
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual double WeaponAbilityChance => InitProperties?.WeaponAbilityChance ?? 0.4;
-        
-        [CommandProperty(AccessLevel.GameMaster)]
-        public virtual bool HasBreath { get; set; } = false;
+        public virtual double WeaponAbilityChance { get; set; } = 0.4;
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual Poison HitPoison { get; set; } = null;
+        public virtual bool HasBreath { get; set; }
+
+        [CommandProperty(AccessLevel.GameMaster)]
+        public virtual bool HasWebs { get; set; }
+
+        [CommandProperty(AccessLevel.GameMaster)]
+        public virtual Poison HitPoison { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
         public virtual double HitPoisonChance { get; } = 0.5;
@@ -98,13 +102,13 @@ namespace Server.Mobiles
         public virtual bool CanFly { get; set; } = false;
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual InhumanSpeech SpeechType { get; set; } = null;
+        public virtual InhumanSpeech SpeechType { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual OppositionGroup OppositionGroup { get; set; } = null;
+        public virtual OppositionGroup OppositionGroup { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual TimeSpan ReacquireDelay { get; set; } = TimeSpan.FromSeconds(10.0);
+        public virtual TimeSpan ReacquireDelay { get; set; } = TimeSpan.FromSeconds(4);
 
         [CommandProperty(AccessLevel.GameMaster)]
         public virtual int TreasureMapLevel { get; set; } = -1;
@@ -131,7 +135,7 @@ namespace Server.Mobiles
         public virtual int ProvokeSkillOverride { get; set; } = -1;
 
         [CommandProperty(AccessLevel.GameMaster)]
-        public virtual bool SaySpellMantra => InitProperties?.SaySpellMantra ?? false;
+        public virtual bool SaySpellMantra { get; set; }
 
         [CommandProperty(AccessLevel.GameMaster)]
         public virtual string LootTable { get; set; }
@@ -152,19 +156,19 @@ namespace Server.Mobiles
                     m_ZuluClass = new ZuluClass(this);
                     if (InitProperties != null)
                     {
-                        m_ZuluClass.Type = InitProperties.ClassType;
-                        m_ZuluClass.Level = InitProperties.ClassLevel;
+                        m_ZuluClass.Type = InitProperties.ClassType ?? ZuluClassType.None;
+                        m_ZuluClass.Level = InitProperties.ClassLevel ?? 0;
                     }
                 }
 
                 return m_ZuluClass;
             }
         }
-        
-        public virtual WeaponAbility GetWeaponAbility() => InitProperties?.WeaponAbility;
-        public virtual void OnRiseSpawn(Type creatureType, Container corpse)
+
+        public virtual WeaponAbility GetWeaponAbility() => InitProperties?.Attack?.Ability;
+        public virtual void OnRiseSpawn(string creatureType, Container corpse)
         {
-            if (!creatureType.IsSubclassOf(typeof(BaseCreature)))
+            if (!Creatures.Exists(creatureType))
                 return;
 
             void Announce()
@@ -180,7 +184,7 @@ namespace Server.Mobiles
             {
                 try
                 {
-                    var creature = (BaseCreature) Activator.CreateInstance(creatureType, null);
+                    BaseCreature creature = creatureType;
                     if (creature == null)
                         return;
 
@@ -203,6 +207,11 @@ namespace Server.Mobiles
                 Timer.DelayCall(RiseCreatureDelay / 2, Announce);
 
             Timer.DelayCall(RiseCreatureDelay, Rise);
+        }
+
+        public static implicit operator BaseCreature(string template)
+        {
+            return Creatures.Create(template);
         }
     }
 }

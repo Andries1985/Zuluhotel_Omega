@@ -1,9 +1,12 @@
+using ModernUO.Serialization;
 using Server.Engines.Harvest;
 using ZuluContent.Zulu.Engines.Magic;
+using ZuluContent.Zulu.Items;
 
 namespace Server.Items
 {
-    public class OmerosPickaxe : BaseAxe, IUsesRemaining, IEnchanted
+    [SerializationGenerator(0, false)]
+    public partial class OmerosPickaxe : BaseAxe, IUsesRemaining, IGMItem
     {
         public override HarvestSystem HarvestSystem => Mining.System;
 
@@ -17,47 +20,24 @@ namespace Server.Items
 
         public override WeaponAnimation DefaultAnimation => WeaponAnimation.Slash1H;
 
+        public override bool AllowEquippedCast(Mobile from) => true;
+
+        public override string DefaultName => "Omero's Pickaxe";
 
         [Constructible]
-        public OmerosPickaxe() : this(200)
+        public OmerosPickaxe() : this(1000)
         {
         }
-
 
         [Constructible]
         public OmerosPickaxe(int uses) : base(0xE86)
         {
-            Name = "Omero's Pickaxe";
             Weight = 11.0;
             Hue = 1301;
             UsesRemaining = uses;
             ShowUsesRemaining = true;
             HarvestBonus = 2;
-        }
-
-        [Constructible]
-        public OmerosPickaxe(Serial serial) : base(serial)
-        {
-        }
-
-        public override void OnSingleClick(Mobile from)
-        {
-            if (!string.IsNullOrEmpty(Name))
-                LabelTo(from, Name);
-        }
-
-        public override void Serialize(IGenericWriter writer)
-        {
-            base.Serialize(writer);
-
-            writer.Write((int) 0); // version
-        }
-
-        public override void Deserialize(IGenericReader reader)
-        {
-            base.Deserialize(reader);
-
-            int version = reader.ReadInt();
+            Identified = false;
         }
     }
 }

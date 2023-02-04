@@ -18,18 +18,19 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
 
         [Key(1)] public CreatureType Type { get; set; } = CreatureType.None;
 
-        [Key(2)] public double Chance { get; set; } = 0.0;
+        [CallPriority(1)]
+        public override bool GetShouldDye() => true;
 
         public override void OnArmorHit(Mobile attacker, Mobile defender, BaseWeapon weapon, BaseArmor armor,
-            ref int damage)
+            ref double damage)
         {
-            if (Chance > Utility.RandomDouble() && attacker is BaseCreature creature && creature.CreatureType == Type)
+            if (attacker is BaseCreature creature && creature.CreatureType == Type)
                 damage /= 2;
         }
 
         public override void OnMeleeHit(Mobile attacker, Mobile defender, BaseWeapon weapon, ref int damage)
         {
-            if (Chance > Utility.RandomDouble() && defender is BaseCreature creature && creature.CreatureType == Type)
+            if (defender is BaseCreature creature && creature.CreatureType == Type)
                 damage *= 2;
         }
     }
@@ -100,23 +101,23 @@ namespace ZuluContent.Zulu.Engines.Magic.Enchantments
         {
             // These are in order of (int)CreatureType
             {string.Empty, string.Empty},
-            {"Slime Slayer", "Slime Protector"},
-            {"Ratkin Slayer", "Ratkin Protector"},
-            {"Plant Slayer", "Plant Protector"},
-            {"Animal Slayer", "Animal Protector"},
-            {"Beholder Slayer", "Beholder Protector"},
-            {"Orc Slayer", "Orc Protector"},
-            {"Terathan Slayer", "Terathan Protector"},
-            {"Ophidian Slayer", "Ophidian Protector"},
-            {"Bewitched Slayer", "Bewitched Protector"},
-            {"Gargoyle Slayer", "Gargoyle Protector"},
-            {"Troll Slayer", "Troll Protector"},
-            {"Giant Slayer", "Giant Protector"},
-            {"Elemental Slayer", "Elemental Protector"},
-            {"Silver", "Undead Protector"},
-            {"Holy", "Unholy"},
-            {"Dragon Slayer", "Dragon Protector"},
             {"Assassin's", "Peacekeeping"},
+            {"Silver", "Undead Protector"},
+            {"Elemental Slayer", "Elemental Protector"},
+            {"Dragon Slayer", "Dragon Protector"},
+            {"Animal Slayer", "Animal Protector"},
+            {"Holy", "Unholy"},
+            {"Beholder Slayer", "Beholder Protector"},
+            {"Bewitched Slayer", "Bewitched Protector"},
+            {"Slime Slayer", "Slime Protector"},
+            {"Terathan Slayer", "Terathan Protector"},
+            {"Plant Slayer", "Plant Protector"},
+            {"Orc Slayer", "Orc Protector"},
+            {"Troll Slayer", "Troll Protector"},
+            {"Gargoyle Slayer", "Gargoyle Protector"},
+            {"Ophidian Slayer", "Ophidian Protector"},
+            {"Ratkin Slayer", "Ratkin Protector"},
+            {"Giant Slayer", "Giant Protector"},
         };
     }
 }

@@ -1,7 +1,9 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Server.ContextMenus;
 using Server.Items;
+using Server.Mobiles;
 using Server.Network;
 using Server.Regions;
 
@@ -343,14 +345,15 @@ namespace Server.Mobiles
 
             if (DateTime.Now - m_LastRestock > RestockDelay)
                 Restock();
-
-            int count = 0;
+            
             List<BuyItemState> list;
             IBuyItemInfo[] buyInfo = this.GetBuyInfo();
             IShopSellInfo[] sellInfo = this.GetSellInfo();
 
             list = new List<BuyItemState>(buyInfo.Length);
             Container cont = this.BuyPack;
+            
+            var opls = new List<ObjectPropertyList>();
 
             for (int idx = 0; idx < buyInfo.Length; idx++)
             {
@@ -365,7 +368,11 @@ namespace Server.Mobiles
 
                 list.Add(new BuyItemState(buyItem.Name, cont.Serial, disp == null ? (Serial) 0x7FC0FFEE : disp.Serial,
                     buyItem.Price, buyItem.Amount, buyItem.ItemID, buyItem.Hue));
-                count++;
+                
+                if (disp is IPropertyListObject obj)
+                {
+                    opls.Add(obj.PropertyList);
+                }
             }
 
             List<Item> playerItems = cont.Items;
@@ -402,7 +409,7 @@ namespace Server.Mobiles
                 {
                     list.Add(
                         new BuyItemState(name, cont.Serial, item.Serial, price, item.Amount, item.ItemID, item.Hue));
-                    count++;
+                    opls.Add(item.PropertyList);
                 }
             }
 
@@ -425,6 +432,11 @@ namespace Server.Mobiles
                 from.NetState.SendVendorBuyList(this, list);
                 from.NetState.SendDisplayBuyList(Serial);
                 from.NetState.SendMobileStatus(from); // make sure their gold amount is sent
+                
+                for (var i = 0; i < opls.Count; ++i)
+                {
+                    from.NetState?.Send(opls[i].Buffer);
+                }
 
                 SayTo(from, 500186); // Greetings.  Have a look around.
             }
@@ -1111,6 +1123,24 @@ namespace Server.Mobiles
                 }
             }
         }
+        
+        public override void AddCustomContextEntries(Mobile from, List<ContextMenuEntry> list)
+        {
+            if (from.Alive && IsActiveVendor)
+            {
+                if (IsActiveSeller)
+                {
+                    list.Add(new VendorBuyEntry(from, this));
+                }
+
+                if (IsActiveBuyer)
+                {
+                    list.Add(new VendorSellEntry(from, this));
+                }
+            }
+
+            base.AddCustomContextEntries(from, list);
+        }
 
         public virtual IShopSellInfo[] GetSellInfo()
         {
@@ -1120,6 +1150,43 @@ namespace Server.Mobiles
         public virtual IBuyItemInfo[] GetBuyInfo()
         {
             return (IBuyItemInfo[]) m_ArmorBuyInfo.ToArray(typeof(IBuyItemInfo));
+        }
+    }
+}
+
+namespace Server.ContextMenus
+{
+    public class VendorBuyEntry : ContextMenuEntry
+    {
+        private readonly BaseVendor m_Vendor;
+
+        public VendorBuyEntry(Mobile from, BaseVendor vendor)
+            : base(6103, 8)
+        {
+            m_Vendor = vendor;
+            Enabled = vendor.CheckVendorAccess(from);
+        }
+
+        public override void OnClick()
+        {
+            m_Vendor.VendorBuy(Owner.From);
+        }
+    }
+
+    public class VendorSellEntry : ContextMenuEntry
+    {
+        private readonly BaseVendor m_Vendor;
+
+        public VendorSellEntry(Mobile from, BaseVendor vendor)
+            : base(6104, 8)
+        {
+            m_Vendor = vendor;
+            Enabled = vendor.CheckVendorAccess(from);
+        }
+
+        public override void OnClick()
+        {
+            m_Vendor.VendorSell(Owner.From);
         }
     }
 }

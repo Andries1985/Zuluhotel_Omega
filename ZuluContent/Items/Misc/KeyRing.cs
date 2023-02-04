@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Server.Items
 {
-    public class KeyRing : Item
+    public class KeyRing : BaseTinkerItem
 	{
 		public static readonly int MaxKeys = 20;
 
@@ -105,13 +105,15 @@ public KeyRing() : base( 0x1011 )
 		{
 			base.OnDelete();
 
-			foreach ( Key key in m_Keys )
-			{
-				key.Delete();
-			}
-
-			m_Keys.Clear();
-		}
+            if (m_Keys != null)
+            {
+                foreach (Key key in m_Keys)
+                {
+                    key.Delete();
+                }
+                m_Keys.Clear();
+            }
+        }
 
 		public void Add( Key key )
 		{
